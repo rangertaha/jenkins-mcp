@@ -6,11 +6,10 @@ make cover       # run tests and print a coverage summary
 make vet         # go vet ./...
 make fmt-check   # gofmt verification
 make lint        # golangci-lint
-make generate    # regenerate zz_generated_clients.go from services.json
 make all         # fmt-check + vet + lint + test + build
 ```
 
-`internal/awsx/registry` has a sanity test asserting known operations resolve as expected (`s3.ListBuckets`, `ec2.DescribeInstances`, ...); `internal/awsx/dispatch` and `internal/awsx/tools` test the generic invoke/read-only/error-mapping paths against a fake, reflectable client rather than real AWS calls, so the suite never touches a real account. `cmd/aws` also has an integration test that builds and drives the real binary over its actual stdin/stdout (unlike every other test, which uses an in-memory transport) — it only calls tools that need no credentials, and explicitly strips every `AWS_*` environment variable and disables EC2 IMDS before starting the subprocess, so it stays just as isolated from a real account as the rest of the suite regardless of what's configured on the machine running it.
+`internal/jenkinsx` and `internal/jenkinsx/tools` test against `httptest.Server` fixtures rather than a real Jenkins instance, covering CSRF crumb caching/refresh, HTTP status error mapping, and each tool handler's request shape and response decoding — including a read-only-mode test per toolset confirming its `Write` tool(s) are suppressed. `cmd/jenkins` also has an integration test that builds and drives the real binary over its actual stdin/stdout (unlike every other test, which uses an in-memory transport) — it points `JENKINS_URL` at a local mock server and strips every inherited `JENKINS_*` environment variable first, so it never depends on or reaches a real Jenkins instance regardless of what's configured on the machine running it.
 
 ## Smoke-testing the protocol
 
@@ -21,18 +20,18 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"s","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-| AWS_READONLY=true ./bin/aws mcp
+| JENKINS_URL=https://ci.example.com JENKINS_USER=alice JENKINS_TOKEN=tok JENKINS_READONLY=true ./bin/jenkins mcp
 ```
 
 Or browse interactively with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
 
 ```sh
-npx @modelcontextprotocol/inspector ./bin/aws mcp
+npx @modelcontextprotocol/inspector ./bin/jenkins mcp
 ```
 
-## Adding a service
+## Adding a tool
 
-See [Services](services.md#adding-a-service).
+See [Tools](tools.md#adding-a-tool).
 
 ## Releasing
 

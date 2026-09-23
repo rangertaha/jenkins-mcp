@@ -1,31 +1,36 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package config loads and validates runtime configuration for the aws-mcp
-// server from environment variables.
+// Package config loads and validates runtime configuration for the
+// jenkins-mcp server from environment variables.
 //
-// Credentials are NOT read here: aws-mcp uses the standard AWS credential chain
-// (environment, shared config/credentials files, SSO, or an attached IAM role)
-// via aws-sdk-go-v2. This package only carries server behavior plus an optional
-// region override.
+// Unlike an AWS-style credential chain, Jenkins has no ambient credential
+// discovery: the server URL and API token must be supplied explicitly, so
+// Load fails fast when a required variable is missing.
 package config
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
 
-// Environment variable names recognised by the server. AWS_REGION is the
-// standard SDK variable and is reused here as the region override.
+// Environment variable names recognised by the server.
 const (
-	EnvRegion   = "AWS_REGION"   // optional region override (standard AWS var)
-	EnvToolsets = "AWS_TOOLSETS" // comma-separated toolset names, or "all"
-	EnvReadOnly = "AWS_READONLY" // "true" disables all write tools
+	EnvURL      = "JENKINS_URL"      // required: base URL of the Jenkins controller
+	EnvUser     = "JENKINS_USER"     // required: username for API token auth
+	EnvToken    = "JENKINS_TOKEN"    // required: Jenkins API token
+	EnvToolsets = "JENKINS_TOOLSETS" // comma-separated toolset names, or "all"
+	EnvReadOnly = "JENKINS_READONLY" // "true" disables all write tools
 )
 
 // Config holds validated server configuration.
 type Config struct {
-	// Region overrides the credential-chain region when non-empty.
-	Region string
+	// URL is the base URL of the Jenkins controller, e.g. "https://ci.example.com".
+	URL string
+	// User is the Jenkins username paired with Token for HTTP Basic auth.
+	User string
+	// Token is the Jenkins API token (Jenkins user -> Configure -> API Token).
+	Token string
 	// Toolsets is the set of enabled toolset names. A nil/empty set means "all".
 	Toolsets []string
 	// ReadOnly, when true, suppresses mutating tools at registration time.
@@ -58,15 +63,33 @@ func (c *Config) ToolsetEnabled(name string) bool {
 	return false
 }
 
-// Load reads configuration from the process environment. aws-mcp has no
-// required configuration (credentials come from the AWS chain), so Load never
-// fails today; it returns an error for signature parity with the other servers.
+// Load reads configuration from the process environment. JENKINS_URL,
+// JENKINS_USER, and JENKINS_TOKEN are required; Load returns an error naming
+// every missing one if any are absent.
 func Load() (*Config, error) {
-	return &Config{
-		Region:   strings.TrimSpace(os.Getenv(EnvRegion)),
+	cfg := &Config{
+		URL:      strings.TrimRight(strings.TrimSpace(os.Getenv(EnvURL)), "/"),
+		User:     strings.TrimSpace(os.Getenv(EnvUser)),
+		Token:    strings.TrimSpace(os.Getenv(EnvToken)),
 		Toolsets: splitList(os.Getenv(EnvToolsets)),
 		ReadOnly: isTruthy(os.Getenv(EnvReadOnly)),
-	}, nil
+	}
+
+	var missing []string
+	if cfg.URL == "" {
+		missing = append(missing, EnvURL)
+	}
+	if cfg.User == "" {
+		missing = append(missing, EnvUser)
+	}
+	if cfg.Token == "" {
+		missing = append(missing, EnvToken)
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required environment variable(s): %s", strings.Join(missing, ", "))
+	}
+
+	return cfg, nil
 }
 
 // splitList parses a comma-separated environment value into a trimmed,

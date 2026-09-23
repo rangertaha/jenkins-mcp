@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "aws": {
+    "jenkins": {
       "command": "go",
-      "args": ["run", "./cmd/aws", "mcp"]
+      "args": ["run", "./cmd/jenkins", "mcp"]
     }
   }
 }

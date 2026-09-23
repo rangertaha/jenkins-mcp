@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package server wires the Model Context Protocol server together: it owns the
 // underlying mcp.Server, enforces the read-only policy, and exposes typed
@@ -20,7 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Server is the aws-mcp application server.
+// Server is the jenkins-mcp application server.
 type Server struct {
 	mcp      *mcp.Server
 	readOnly bool
@@ -135,14 +135,13 @@ func Register[In, Out any](s *Server, def ToolDef, h mcp.ToolHandlerFor[In, Out]
 // uncaught, would crash the whole MCP server and every other in-flight or
 // future request along with it. Every tool call passes through this one
 // choke point, so it's the right place for a single blanket guard rather
-// than scattering recover() at each call site that happens to reflect over
-// generic/cataloged data today (aws_invoke's dispatch, aws_describe_operation's
-// schema generation) — and it covers any handler added later too.
+// than scattering recover() at each call site that happens to decode
+// server-controlled JSON today — and it covers any handler added later too.
 //
-// Unlike ordinary tool errors (an expected AWS API failure, a bad input —
+// Unlike ordinary tool errors (an expected Jenkins API failure, a bad input —
 // returned to the client and otherwise left unlogged, matching this
-// codebase's existing convention), a panic means a genuine bug in aws-mcp or
-// the AWS SDK, not routine API behavior. It's logged to stderr (name is set
+// codebase's existing convention), a panic means a genuine bug in jenkins-mcp
+// or the Jenkins client, not routine API behavior. It's logged to stderr (name is set
 // up by app.Assemble) so an operator running the server long-term has any
 // visibility into it at all — otherwise a recovered panic would be
 // completely invisible server-side, surfacing only if a user happened to
@@ -151,7 +150,7 @@ func recoverPanics[In, Out any](name string, h mcp.ToolHandlerFor[In, Out]) mcp.
 	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (result *mcp.CallToolResult, out Out, err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("aws-mcp: recovered panic in tool %q: %v", name, r)
+				log.Printf("jenkins-mcp: recovered panic in tool %q: %v", name, r)
 				err = fmt.Errorf("panic: %v", r)
 			}
 		}()

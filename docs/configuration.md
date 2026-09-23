@@ -1,40 +1,41 @@
 # Configuration
 
-Credentials come from the standard AWS credential chain (environment variables,
-`~/.aws/config` & `~/.aws/credentials`, SSO, or an attached IAM role). aws-mcp
-does not store credentials. Server behavior is configured with:
+jenkins-mcp authenticates with a Jenkins username and API token (Jenkins user
+-> Configure -> API Token -> "Add new Token"). It does not use your Jenkins
+web session or SSO login. Server behavior is configured with:
 
-| Variable       | Required | Description                                                |
-| -------------- | :------: | -------------------------------------------------------------- |
-| `AWS_REGION`   |    no    | Region (standard AWS variable; also the override).          |
-| `AWS_TOOLSETS` |    no    | Comma-separated AWS service names to enable, or `all`. See [Services](services.md) for valid names. |
-| `AWS_READONLY` |    no    | `true` to reject mutating operations at call time.          |
+| Variable           | Required | Description                                                        |
+| ------------------- | :------: | ------------------------------------------------------------------- |
+| `JENKINS_URL`       |   yes    | Base URL of the Jenkins controller, e.g. `https://ci.example.com`. |
+| `JENKINS_USER`      |   yes    | Username paired with `JENKINS_TOKEN`.                               |
+| `JENKINS_TOKEN`     |   yes    | Jenkins API token.                                                  |
+| `JENKINS_TOOLSETS`  |    no    | Comma-separated toolset names to enable, or `all`. See [Tools](tools.md) for valid names. |
+| `JENKINS_READONLY`  |    no    | `true` to disable all mutating tools (`jenkins_trigger_build`, `jenkins_cancel_queue_item`) at registration time. |
 
 ## Use with Claude Desktop / Claude Code
-
-Because credentials come from the standard chain, an MCP client config usually needs no secrets — just point it at the `aws` binary and, optionally, pick a profile/region:
 
 ```json
 {
   "mcpServers": {
-    "aws": {
-      "command": "aws",
+    "jenkins": {
+      "command": "jenkins",
       "args": ["mcp"],
       "env": {
-        "AWS_PROFILE": "your-profile",
-        "AWS_REGION": "us-east-1"
+        "JENKINS_URL": "https://ci.example.com",
+        "JENKINS_USER": "your-username",
+        "JENKINS_TOKEN": "your-api-token"
       }
     }
   }
 }
 ```
 
-For Claude Code: `claude mcp add aws -- aws mcp` (add `--env AWS_PROFILE=...` if you need a non-default profile).
+For Claude Code: `claude mcp add jenkins -- jenkins mcp` (set the three `JENKINS_*` variables in your shell first, or add `--env JENKINS_URL=... --env JENKINS_USER=... --env JENKINS_TOKEN=...`).
 
 ## Local development
 
-The repo ships a committed [`.mcp.json`](.mcp.json) that runs the server straight from source (`go run ./cmd/aws mcp`), so changes take effect on the next session without a build step. Run `cp .env.example .env` and fill it in (or just rely on your existing `~/.aws` credentials) before launching Claude Code in this directory.
+The repo ships a committed [`.mcp.json`](.mcp.json) that runs the server straight from source (`go run ./cmd/jenkins mcp`), so changes take effect on the next session without a build step. Run `cp .env.example .env` and fill in `JENKINS_URL`/`JENKINS_USER`/`JENKINS_TOKEN` before launching Claude Code in this directory.
 
 ## Next: the CLI
 
-With credentials in place, see the [CLI](cli.md) reference for `aws test` (verify the connection).
+With credentials in place, see the [CLI](cli.md) reference for `jenkins test` (verify the connection).

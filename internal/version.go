@@ -1,14 +1,14 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package internal holds build-wide values shared across aws-mcp, such as the
-// server version reported to MCP clients.
+// Package internal holds build-wide values shared across jenkins-mcp, such as
+// the server version reported to MCP clients.
 package internal
 
 import "runtime/debug"
 
 // version is injected for release builds via:
 //
-//	-ldflags "-X github.com/rangertaha/aws-mcp/internal.version=v1.2.3"
+//	-ldflags "-X github.com/rangertaha/jenkins-mcp/internal.version=v1.2.3"
 //
 // When empty (the common case for `go install` and source builds), Version
 // derives a value from the build info instead.
@@ -18,7 +18,7 @@ var version string
 //
 //  1. the value injected at build time with -ldflags (release builds);
 //  2. the module version from the build info, e.g. when installed with
-//     `go install github.com/rangertaha/aws-mcp/cmd/aws@v1.2.3`;
+//     `go install github.com/rangertaha/jenkins-mcp/cmd/jenkins@v1.2.3`;
 //  3. a "dev" value annotated with the VCS revision when building from source.
 func Version() string {
 	if version != "" {

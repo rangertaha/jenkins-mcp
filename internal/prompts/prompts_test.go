@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 package prompts
 
@@ -10,26 +10,20 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/rangertaha/aws-mcp/internal/server"
+	"github.com/rangertaha/jenkins-mcp/internal/server"
 )
 
-func TestRegisterAddsSurveyBucketPrompt(t *testing.T) {
+func TestRegisterAddsBothPrompts(t *testing.T) {
 	s := server.New("test", "0.0.0", false)
 	Register(s)
 
-	if s.PromptCount() != 1 {
-		t.Fatalf("PromptCount() = %d, want 1", s.PromptCount())
+	if s.PromptCount() != 2 {
+		t.Fatalf("PromptCount() = %d, want 2", s.PromptCount())
 	}
 }
 
-// TestSurveyBucketRenderSubstitutesBucketName drives the registered prompt
-// through a real in-memory MCP client/server round-trip and checks the
-// rendered instructions actually contain the caller-supplied bucket name —
-// both in the narrative sentence and the example aws_invoke JSON input — and
-// no leftover "%s" from an under-substituted format string.
-func TestSurveyBucketRenderSubstitutesBucketName(t *testing.T) {
-	s := server.New("test", "0.0.0", false)
-	Register(s)
+func getPromptText(t *testing.T, s *server.Server, name string, args map[string]string) string {
+	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -46,29 +40,61 @@ func TestSurveyBucketRenderSubstitutesBucketName(t *testing.T) {
 	}
 	defer func() { _ = session.Close() }()
 
-	const bucket = "my-test-bucket"
-	res, err := session.GetPrompt(ctx, &mcp.GetPromptParams{
-		Name:      "survey_bucket",
-		Arguments: map[string]string{"bucket": bucket},
-	})
+	res, err := session.GetPrompt(ctx, &mcp.GetPromptParams{Name: name, Arguments: args})
 	if err != nil {
-		t.Fatalf("GetPrompt(survey_bucket): %v", err)
+		t.Fatalf("GetPrompt(%s): %v", name, err)
 	}
 	if len(res.Messages) != 1 {
-		t.Fatalf("GetPrompt(survey_bucket) returned %d messages, want 1", len(res.Messages))
+		t.Fatalf("GetPrompt(%s) returned %d messages, want 1", name, len(res.Messages))
 	}
 	text, ok := res.Messages[0].Content.(*mcp.TextContent)
 	if !ok {
 		t.Fatalf("prompt message content type = %T, want *mcp.TextContent", res.Messages[0].Content)
 	}
 
-	if count := strings.Count(text.Text, bucket); count != 2 {
-		t.Errorf("rendered prompt mentions %q %d times, want 2 (narrative + JSON input): %s", bucket, count, text.Text)
-	}
-	if strings.Contains(text.Text, "%s") || strings.Contains(text.Text, "%!s") {
-		t.Errorf("rendered prompt still contains an unsubstituted format verb: %s", text.Text)
-	}
-
 	cancel()
 	<-serverErrCh
+	return text.Text
+}
+
+func TestDiagnoseFailedBuildRenderSubstitutesArgs(t *testing.T) {
+	s := server.New("test", "0.0.0", false)
+	Register(s)
+
+	text := getPromptText(t, s, "diagnose_failed_build", map[string]string{"job": "team-a/service-b", "build": "42"})
+
+	if !strings.Contains(text, "team-a/service-b") {
+		t.Errorf("rendered prompt should mention the job name: %s", text)
+	}
+	if !strings.Contains(text, "42") {
+		t.Errorf("rendered prompt should mention the build number: %s", text)
+	}
+	if strings.Contains(text, "%s") || strings.Contains(text, "%!s") {
+		t.Errorf("rendered prompt still contains an unsubstituted format verb: %s", text)
+	}
+}
+
+func TestDiagnoseFailedBuildDefaultsBuildToLastFailed(t *testing.T) {
+	s := server.New("test", "0.0.0", false)
+	Register(s)
+
+	text := getPromptText(t, s, "diagnose_failed_build", map[string]string{"job": "team-a/service-b"})
+
+	if !strings.Contains(text, "lastFailedBuild") {
+		t.Errorf("rendered prompt should default build to lastFailedBuild: %s", text)
+	}
+}
+
+func TestSurveyJobRenderSubstitutesJobName(t *testing.T) {
+	s := server.New("test", "0.0.0", false)
+	Register(s)
+
+	text := getPromptText(t, s, "survey_job", map[string]string{"job": "team-a/service-b"})
+
+	if !strings.Contains(text, "team-a/service-b") {
+		t.Errorf("rendered prompt should mention the job name: %s", text)
+	}
+	if strings.Contains(text, "%s") || strings.Contains(text, "%!s") {
+		t.Errorf("rendered prompt still contains an unsubstituted format verb: %s", text)
+	}
 }

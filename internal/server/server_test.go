@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 package server
 
@@ -170,11 +170,10 @@ func TestToolAndPromptEndToEnd(t *testing.T) {
 }
 
 // TestRegisterRecoversPanickingHandler proves the server survives a
-// handler panic instead of the whole process crashing: aws_describe_operation's
-// schema generation and aws_invoke's reflective dispatch both run generic
-// code over the cataloged AWS operation surface, and neither aws-mcp nor
-// the vendored MCP SDK recovers panics anywhere else in the call path, so
-// Register's wrapping is the only backstop. Drives a real in-memory
+// handler panic instead of the whole process crashing: every tool handler
+// decodes server-controlled JSON into its own struct, and neither
+// jenkins-mcp nor the vendored MCP SDK recovers panics anywhere else in the
+// call path, so Register's wrapping is the only backstop. Drives a real in-memory
 // CallTool round trip (not a direct function call) so a regression that
 // only protects the direct-call path, but not whatever the MCP SDK does
 // around it, would still be caught.

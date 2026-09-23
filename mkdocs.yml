@@ -1,8 +1,8 @@
-site_name: aws-mcp
-site_description: An MCP server exposing AWS services as tools an LLM client can call.
-site_url: https://rangertaha.github.io/aws-mcp/
-repo_url: https://github.com/rangertaha/aws-mcp
-repo_name: rangertaha/aws-mcp
+site_name: jenkins-mcp
+site_description: An MCP server exposing Jenkins as tools an LLM client can call.
+site_url: https://rangertaha.github.io/jenkins-mcp/
+repo_url: https://github.com/rangertaha/jenkins-mcp
+repo_name: rangertaha/jenkins-mcp
 edit_uri: edit/main/docs/
 
 theme:
@@ -49,7 +49,7 @@ nav:
   - Install: install.md
   - Configuration: configuration.md
   - CLI: cli.md
-  - Services: services.md
+  - Tools: tools.md
   - Prompts: prompts.md
   - Architecture: architecture.md
   - Development: development.md

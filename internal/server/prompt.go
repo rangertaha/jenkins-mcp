@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 package server
 
@@ -40,11 +40,11 @@ func (s *Server) AddPrompt(name, description string, args []PromptArg, render fu
 		// would otherwise unwind uncaught through the MCP SDK's own
 		// request-handling goroutine and crash the whole server, not just
 		// fail this one prompt request. No render function panics today
-		// (survey_bucket's map indexing safely zero-values on a missing
-		// key), but AddPrompt is a general API future prompts use too.
+		// (Go map indexing safely zero-values on a missing key), but
+		// AddPrompt is a general API future prompts use too.
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("aws-mcp: recovered panic in prompt %q: %v", name, r)
+				log.Printf("jenkins-mcp: recovered panic in prompt %q: %v", name, r)
 				result, err = nil, fmt.Errorf("panic: %v", r)
 			}
 		}()

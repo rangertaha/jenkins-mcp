@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 package config
 
@@ -16,11 +16,11 @@ func TestSplitList(t *testing.T) {
 	}{
 		{"empty", "", nil},
 		{"whitespace only", "   ", nil},
-		{"single", "s3", []string{"s3"}},
-		{"multiple", "s3,ec2,lambda", []string{"s3", "ec2", "lambda"}},
-		{"whitespace around entries", " s3 , ec2 ,  lambda ", []string{"s3", "ec2", "lambda"}},
-		{"mixed case lower-cased", "S3,Ec2,LAMBDA", []string{"s3", "ec2", "lambda"}},
-		{"empty entries dropped", "s3,,ec2,", []string{"s3", "ec2"}},
+		{"single", "jobs", []string{"jobs"}},
+		{"multiple", "jobs,builds,nodes", []string{"jobs", "builds", "nodes"}},
+		{"whitespace around entries", " jobs , builds ,  nodes ", []string{"jobs", "builds", "nodes"}},
+		{"mixed case lower-cased", "Jobs,Builds,NODES", []string{"jobs", "builds", "nodes"}},
+		{"empty entries dropped", "jobs,,builds,", []string{"jobs", "builds"}},
 		{"garbage only commas", ",,,", []string{}},
 	}
 	for _, c := range cases {
@@ -44,8 +44,8 @@ func TestSplitList(t *testing.T) {
 // trimmed, and lower-cased.
 func FuzzSplitList(f *testing.F) {
 	for _, seed := range []string{
-		"", ",", ",,,", "s3,ec2", " s3 , ec2 ", "S3,EC2", "s3,,ec2,",
-		"\t\n", "s3\x00ec2", "😀,s3", strings.Repeat("a,", 1000),
+		"", ",", ",,,", "jobs,builds", " jobs , builds ", "JOBS,BUILDS", "jobs,,builds,",
+		"\t\n", "jobs\x00builds", "😀,jobs", strings.Repeat("a,", 1000),
 	} {
 		f.Add(seed)
 	}
@@ -108,9 +108,9 @@ func TestConfigAllToolsets(t *testing.T) {
 	}{
 		{"nil", nil, true},
 		{"empty slice", []string{}, true},
-		{"specific toolsets", []string{"s3", "ec2"}, false},
+		{"specific toolsets", []string{"jobs", "builds"}, false},
 		{"explicit all", []string{"all"}, true},
-		{"all mixed with others", []string{"s3", "all"}, true},
+		{"all mixed with others", []string{"jobs", "all"}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -124,36 +124,44 @@ func TestConfigAllToolsets(t *testing.T) {
 
 func TestConfigToolsetEnabled(t *testing.T) {
 	all := &Config{}
-	if !all.ToolsetEnabled("s3") {
+	if !all.ToolsetEnabled("jobs") {
 		t.Error("empty Toolsets should enable every toolset")
 	}
 
-	specific := &Config{Toolsets: []string{"s3", "ec2"}}
-	if !specific.ToolsetEnabled("s3") {
-		t.Error("s3 should be enabled")
+	specific := &Config{Toolsets: []string{"jobs", "builds"}}
+	if !specific.ToolsetEnabled("jobs") {
+		t.Error("jobs should be enabled")
 	}
-	if !specific.ToolsetEnabled("S3") {
+	if !specific.ToolsetEnabled("Jobs") {
 		t.Error("ToolsetEnabled should be case-insensitive")
 	}
-	if specific.ToolsetEnabled("lambda") {
-		t.Error("lambda should not be enabled")
+	if specific.ToolsetEnabled("nodes") {
+		t.Error("nodes should not be enabled")
 	}
 }
 
 func TestLoad(t *testing.T) {
-	t.Setenv(EnvRegion, "  us-west-2  ")
-	t.Setenv(EnvToolsets, "S3, EC2")
+	t.Setenv(EnvURL, "  https://ci.example.com/  ")
+	t.Setenv(EnvUser, "  alice  ")
+	t.Setenv(EnvToken, "  tok_123  ")
+	t.Setenv(EnvToolsets, "Jobs, Builds")
 	t.Setenv(EnvReadOnly, "true")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Region != "us-west-2" {
-		t.Errorf("Region = %q, want trimmed %q", cfg.Region, "us-west-2")
+	if cfg.URL != "https://ci.example.com" {
+		t.Errorf("URL = %q, want trimmed %q (no trailing slash)", cfg.URL, "https://ci.example.com")
 	}
-	if !reflect.DeepEqual(cfg.Toolsets, []string{"s3", "ec2"}) {
-		t.Errorf("Toolsets = %#v, want [s3 ec2]", cfg.Toolsets)
+	if cfg.User != "alice" {
+		t.Errorf("User = %q, want %q", cfg.User, "alice")
+	}
+	if cfg.Token != "tok_123" {
+		t.Errorf("Token = %q, want %q", cfg.Token, "tok_123")
+	}
+	if !reflect.DeepEqual(cfg.Toolsets, []string{"jobs", "builds"}) {
+		t.Errorf("Toolsets = %#v, want [jobs builds]", cfg.Toolsets)
 	}
 	if !cfg.ReadOnly {
 		t.Error("ReadOnly = false, want true")
@@ -161,7 +169,9 @@ func TestLoad(t *testing.T) {
 }
 
 func TestLoadDefaults(t *testing.T) {
-	t.Setenv(EnvRegion, "")
+	t.Setenv(EnvURL, "https://ci.example.com")
+	t.Setenv(EnvUser, "alice")
+	t.Setenv(EnvToken, "tok_123")
 	t.Setenv(EnvToolsets, "")
 	t.Setenv(EnvReadOnly, "")
 
@@ -169,13 +179,43 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Region != "" {
-		t.Errorf("Region = %q, want empty", cfg.Region)
-	}
 	if !cfg.AllToolsets() {
-		t.Error("unset AWS_TOOLSETS should mean all toolsets")
+		t.Error("unset JENKINS_TOOLSETS should mean all toolsets")
 	}
 	if cfg.ReadOnly {
-		t.Error("unset AWS_READONLY should mean ReadOnly=false")
+		t.Error("unset JENKINS_READONLY should mean ReadOnly=false")
+	}
+}
+
+func TestLoadMissingRequiredFields(t *testing.T) {
+	t.Setenv(EnvURL, "")
+	t.Setenv(EnvUser, "")
+	t.Setenv(EnvToken, "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error naming the missing required variables")
+	}
+	for _, want := range []string{EnvURL, EnvUser, EnvToken} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Load() error = %q, want it to mention %q", err.Error(), want)
+		}
+	}
+}
+
+func TestLoadPartiallyMissing(t *testing.T) {
+	t.Setenv(EnvURL, "https://ci.example.com")
+	t.Setenv(EnvUser, "")
+	t.Setenv(EnvToken, "tok_123")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error naming JENKINS_USER")
+	}
+	if !strings.Contains(err.Error(), EnvUser) {
+		t.Errorf("Load() error = %q, want it to mention %q", err.Error(), EnvUser)
+	}
+	if strings.Contains(err.Error(), EnvURL) || strings.Contains(err.Error(), EnvToken) {
+		t.Errorf("Load() error = %q, should not mention variables that were set", err.Error())
 	}
 }
