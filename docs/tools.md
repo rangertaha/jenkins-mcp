@@ -33,6 +33,12 @@ entirely when `JENKINS_READONLY=true`.
 | `jenkins_list_nodes` | r | List build agents/nodes and their online/idle status. |
 | `jenkins_get_node` | r | Get one node's status and per-executor activity. |
 
+Pass `jenkins_get_node` the `name` field from `jenkins_list_nodes`, not
+`displayName`. For the controller the two differ — Jenkins reports the display
+name `Built-In Node`, but only the segment `(built-in)` resolves under
+`/computer/`, and Jenkins exposes it nowhere in the API, so `name` is
+reconstructed from the node's `_class`.
+
 ## `views`
 
 | Tool | R/W | Description |

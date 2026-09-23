@@ -196,32 +196,30 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
-	// KNOWN BUG (see the e2e report): jenkins_get_node's description tells
-	// the model to pass jenkins_list_nodes' displayName through verbatim,
-	// but for the controller real Jenkins reports displayName "Built-In
-	// Node" while the URL segment is "(built-in)" — so the documented
-	// round-trip 404s. Nothing in jenkins_list_nodes' output carries the
-	// usable segment, so the two tools cannot currently be chained for the
-	// controller. This test asserts the behavior the tools promise; it
-	// stays red until nodes.go is fixed.
+	// The chaining contract: whatever jenkins_list_nodes reports as `name`
+	// must be directly usable as jenkins_get_node's `name`. For the
+	// controller this is exactly where it used to break — real Jenkins
+	// reports displayName "Built-In Node", which 404s as a URL segment,
+	// while the usable segment is "(built-in)". Only `name` carries it.
 	t.Run("get_node_roundtrip_from_list", func(t *testing.T) {
 		listed := client.mustCallTool("jenkins_list_nodes", nil)
 		list := items(t, "jenkins_list_nodes", listed)
 		if len(list) == 0 {
 			t.Fatal("no nodes to round-trip")
 		}
-		displayName, _ := list[0]["displayName"].(string)
+		name, _ := list[0]["name"].(string)
+		if name == "" {
+			t.Fatalf("jenkins_list_nodes returned no name field: %v", list[0])
+		}
 
-		res := client.callTool("jenkins_get_node", map[string]any{"name": displayName})
+		res := client.callTool("jenkins_get_node", map[string]any{"name": name})
 		if res.isError {
-			t.Errorf("jenkins_get_node(%q) failed, but %q is exactly what jenkins_list_nodes "+
-				"reported as displayName and what jenkins_get_node's own description tells the "+
-				"model to pass. The controller's real URL segment is \"(built-in)\", and no field "+
-				"in jenkins_list_nodes' output exposes it.", displayName, displayName)
+			t.Errorf("jenkins_get_node(%q) failed, but %q is what jenkins_list_nodes reported "+
+				"as name and what jenkins_get_node's description tells the model to pass", name, name)
 			return
 		}
-		if got, _ := res.structured["displayName"].(string); got != displayName {
-			t.Errorf("round-tripped displayName = %q, want %q", got, displayName)
+		if got, _ := res.structured["name"].(string); got != name {
+			t.Errorf("round-tripped name = %q, want %q", got, name)
 		}
 	})
 
