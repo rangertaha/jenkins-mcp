@@ -16,7 +16,7 @@ SHELL       := /usr/bin/env bash
 
 .DEFAULT_GOAL := help
 
-.PHONY: help all build install test cover vet fmt fmt-check lint tidy clean run version next bump snapshot
+.PHONY: help all build install test e2e cover vet fmt fmt-check lint tidy clean run version next bump snapshot
 
 ## help: show self-documenting target list
 help:
@@ -37,6 +37,11 @@ install:
 ## test: run the test suite with the race detector
 test:
 	go test -race ./...
+
+## e2e: run end-to-end tests against a real Jenkins in Docker (needs Docker; several minutes)
+e2e:
+	@command -v docker >/dev/null 2>&1 || { echo "docker not found; the e2e suite needs a running Docker daemon"; exit 1; }
+	go test -tags=e2e -timeout=20m -v ./e2e/...
 
 ## cover: run tests and open a coverage summary
 cover:
