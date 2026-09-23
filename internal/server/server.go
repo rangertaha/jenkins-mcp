@@ -172,9 +172,39 @@ var schemaOptions = &jsonschema.ForOptions{
 	},
 }
 
-// normalizedSchema generates the JSON schema for t (dereferencing pointers) and
-// rewrites any boolean subschemas into their object equivalent. It returns nil
-// on any error, signaling the caller to fall back to the SDK's own generation.
+// SchemaRefiner lets a tool's input or output type tighten the JSON schema
+// inferred from its Go fields. Inference only ever produces types and
+// descriptions — the `jsonschema` struct tag sets a description and nothing
+// else — so constraints that make a schema genuinely enforceable (enum,
+// pattern, minimum, minLength) have to be added here.
+//
+// This is worth doing rather than relying on handler-side validation alone:
+// MCP clients validate a tool call against the input schema before it ever
+// reaches the server, so a constraint expressed here rejects a malformed
+// call at the client, with a message naming the offending field, instead of
+// surfacing as a Jenkins 404 several layers later.
+//
+// Implement it on the In or Out type itself (value receiver) and mutate the
+// passed schema in place:
+//
+//	func (GetBuildInput) RefineSchema(s *jsonschema.Schema) {
+//		s.Properties["build"].Pattern = `^(\d+|last\w+Build)$`
+//	}
+type SchemaRefiner interface {
+	RefineSchema(*jsonschema.Schema)
+}
+
+// refine applies t's SchemaRefiner, if it implements one, to s.
+func refine(t reflect.Type, s *jsonschema.Schema) {
+	if r, ok := reflect.New(t).Elem().Interface().(SchemaRefiner); ok {
+		r.RefineSchema(s)
+	}
+}
+
+// normalizedSchema generates the JSON schema for t (dereferencing pointers),
+// applies t's SchemaRefiner if it has one, and rewrites any boolean
+// subschemas into their object equivalent. It returns nil on any error,
+// signaling the caller to fall back to the SDK's own generation.
 func normalizedSchema(t reflect.Type) json.RawMessage {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -183,6 +213,7 @@ func normalizedSchema(t reflect.Type) json.RawMessage {
 	if err != nil {
 		return nil
 	}
+	refine(t, s)
 	raw, err := json.Marshal(s)
 	if err != nil {
 		return nil

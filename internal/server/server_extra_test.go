@@ -3,11 +3,14 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -116,5 +119,55 @@ func TestNormalizeSchemaNodePassesThroughScalars(t *testing.T) {
 		if got := normalizeSchemaNode(in); got != in {
 			t.Errorf("normalizeSchemaNode(%v) = %v, want it unchanged", in, got)
 		}
+	}
+}
+
+// refinedInput exercises the SchemaRefiner hook: inference alone can only
+// produce {"type":"string"} for Build, so the pattern below can only come
+// from RefineSchema.
+type refinedInput struct {
+	Build string `json:"build" jsonschema:"build number or permalink"`
+}
+
+const refinedPattern = `^(\d+|lastBuild)$`
+
+func (refinedInput) RefineSchema(s *jsonschema.Schema) {
+	s.Properties["build"].Pattern = refinedPattern
+}
+
+// unrefinedInput has no RefineSchema method, confirming the hook is optional.
+type unrefinedInput struct {
+	Build string `json:"build"`
+}
+
+func TestNormalizedSchemaAppliesSchemaRefiner(t *testing.T) {
+	// normalizedSchema is what Register assigns to tool.InputSchema, so a
+	// constraint visible here is a constraint the client sees and enforces.
+	raw := normalizedSchema(reflect.TypeFor[refinedInput]())
+	if raw == nil {
+		t.Fatal("normalizedSchema returned nil")
+	}
+
+	var schema struct {
+		Properties map[string]struct {
+			Pattern string `json:"pattern"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	if got := schema.Properties["build"].Pattern; got != refinedPattern {
+		t.Errorf("build pattern = %q, want %q; refinement did not reach the published schema",
+			got, refinedPattern)
+	}
+}
+
+func TestNormalizedSchemaWithoutRefinerIsUnconstrained(t *testing.T) {
+	raw := normalizedSchema(reflect.TypeFor[unrefinedInput]())
+	if raw == nil {
+		t.Fatal("normalizedSchema returned nil")
+	}
+	if bytes.Contains(raw, []byte(`"pattern"`)) {
+		t.Errorf("schema = %s, want no pattern for a type with no RefineSchema", raw)
 	}
 }
