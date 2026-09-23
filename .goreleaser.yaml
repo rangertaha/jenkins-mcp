@@ -2,23 +2,23 @@
 # Validate locally with `make snapshot` (or `goreleaser check`).
 version: 2
 
-project_name: aws-mcp
+project_name: jenkins-mcp
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: aws
-    main: ./cmd/aws
-    binary: aws
+  - id: jenkins
+    main: ./cmd/jenkins
+    binary: jenkins
     env:
       - CGO_ENABLED=0
     flags:
       - -trimpath
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
-      - -s -w -X github.com/rangertaha/aws-mcp/internal.version={{ .Version }}
+      - -s -w -X github.com/rangertaha/jenkins-mcp/internal.version={{ .Version }}
     goos:
       - linux
       - darwin

@@ -1,10 +1,10 @@
-# aws-mcp
+# jenkins-mcp
 
-[![CI](https://github.com/rangertaha/aws-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rangertaha/aws-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/rangertaha/jenkins-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rangertaha/jenkins-mcp/actions/workflows/ci.yml)
 [![Status: under construction](https://img.shields.io/badge/status-under%20construction-orange)](#-under-construction)
-[![Go Reference](https://pkg.go.dev/badge/github.com/rangertaha/aws-mcp.svg)](https://pkg.go.dev/github.com/rangertaha/aws-mcp)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/rangertaha/aws-mcp)](go.mod)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go Reference](https://pkg.go.dev/badge/github.com/rangertaha/jenkins-mcp.svg)](https://pkg.go.dev/github.com/rangertaha/jenkins-mcp)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/rangertaha/jenkins-mcp)](go.mod)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 <div align="center">
 
@@ -19,56 +19,54 @@ APIs, configuration, and tool names may still change.
 ---
 
 A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server, written
-in Go, exposing **AWS** services as tools an LLM client (Claude Desktop/Code,
-Cursor, and others) can call. Built on the official
-[`aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2).
+in Go, exposing **Jenkins** as tools an LLM client (Claude Desktop/Code, Cursor,
+and others) can call: list and inspect jobs, trigger and diagnose builds, watch
+the queue, and check node/plugin status.
 
-Rather than hand-writing a tool per AWS API call, aws-mcp discovers every
-operation on every configured AWS SDK v2 service client via reflection and
-dispatches calls to them generically — **426 services, 18,783 operations**,
-through a handful of meta tools:
+14 tools across 6 toolsets, each independently enable-able with `JENKINS_TOOLSETS`:
 
-| Tool                     | Purpose                                                              |
-| ------------------------ | --------------------------------------------------------------------- |
-| `aws_list_services`      | List every AWS service reachable through `aws_invoke`.                |
-| `aws_list_operations`    | List a service's operations, flagging mutating/destructive/unsupported ones. |
-| `aws_describe_operation` | Get an operation's JSON Schema (input and output) to build a call.    |
-| `aws_invoke`             | Call any cataloged operation by service/operation name + JSON input.  |
-| `aws_list_profiles`      | List AWS profiles from the shared config/credentials files.           |
-| `aws_use_profile`        | Switch the active AWS profile.                                        |
-| `aws_whoami`             | Verify credentials via STS GetCallerIdentity.                          |
+| Toolset   | Tools                                                                           |
+| --------- | -------------------------------------------------------------------------------- |
+| `jobs`    | `jenkins_list_jobs`, `jenkins_get_job`                                           |
+| `builds`  | `jenkins_get_build`, `jenkins_trigger_build`, `jenkins_get_build_console`         |
+| `queue`   | `jenkins_list_queue`, `jenkins_cancel_queue_item`                                |
+| `nodes`   | `jenkins_list_nodes`, `jenkins_get_node`                                         |
+| `views`   | `jenkins_list_views`, `jenkins_get_view`                                         |
+| `plugins` | `jenkins_list_plugins`, `jenkins_system_info`, `jenkins_whoami`                  |
 
-**📖 Full documentation: [rangertaha.github.io/aws-mcp](https://rangertaha.github.io/aws-mcp/)** — install options, MCP client setup, the full 426-service list, architecture, and development guide all live there. This README only covers the quickstart.
+**📖 Full documentation: [rangertaha.github.io/jenkins-mcp](https://rangertaha.github.io/jenkins-mcp/)** — install options, MCP client setup, the full tool reference, architecture, and development guide all live there. This README only covers the quickstart.
 
 ## Quickstart
 
 ```sh
-go install github.com/rangertaha/aws-mcp/cmd/aws@latest
-aws test    # verify credentials (STS GetCallerIdentity)
-aws mcp     # run the MCP server over stdio
+go install github.com/rangertaha/jenkins-mcp/cmd/jenkins@latest
+JENKINS_URL=https://ci.example.com JENKINS_USER=alice JENKINS_TOKEN=... jenkins test   # verify credentials
+JENKINS_URL=https://ci.example.com JENKINS_USER=alice JENKINS_TOKEN=... jenkins mcp    # run the MCP server over stdio
 ```
 
-See [Install](https://rangertaha.github.io/aws-mcp/install/) for prebuilt binaries and building from source. Note: the `aws` binary is unusually large (~670MB) — an inherent trade-off of generic reflection-based dispatch, explained there and in [Architecture](https://rangertaha.github.io/aws-mcp/architecture/).
+See [Install](https://rangertaha.github.io/jenkins-mcp/install/) for prebuilt binaries and building from source.
 
-Credentials come from the standard AWS chain (environment, `~/.aws`, SSO, or an attached IAM role) — nothing is stored by the server. Behavior is configured with:
+Authentication is a Jenkins username + API token (Jenkins user → Configure → API Token → Add new Token) sent as HTTP Basic auth — nothing is stored by the server. Behavior is configured with:
 
-| Variable       | Required | Description                                                  |
-| -------------- | :------: | -------------------------------------------------------------- |
-| `AWS_REGION`   |    no    | Region (standard AWS variable; also the override).             |
-| `AWS_TOOLSETS` |    no    | Comma-separated AWS service names to enable, or `all`.         |
-| `AWS_READONLY` |    no    | `true` to reject mutating operations (see `aws_list_operations`). |
+| Variable            | Required | Description                                                          |
+| -------------------- | :------: | ------------------------------------------------------------------- |
+| `JENKINS_URL`        |   yes    | Base URL of the Jenkins controller.                                  |
+| `JENKINS_USER`       |   yes    | Username paired with `JENKINS_TOKEN`.                                |
+| `JENKINS_TOKEN`      |   yes    | Jenkins API token.                                                    |
+| `JENKINS_TOOLSETS`   |    no    | Comma-separated toolset names to enable, or `all` (default).         |
+| `JENKINS_READONLY`   |    no    | `true` to suppress mutating tools (`jenkins_trigger_build`, `jenkins_cancel_queue_item`). |
 
-See [Configuration](https://rangertaha.github.io/aws-mcp/configuration/) for MCP client setup (Claude Desktop/Code) and local development.
+See [Configuration](https://rangertaha.github.io/jenkins-mcp/configuration/) for MCP client setup (Claude Desktop/Code) and local development.
 
 ## Documentation
 
-- [Install](https://rangertaha.github.io/aws-mcp/install/) — prebuilt binaries, `go install`, build from source.
-- [Configuration](https://rangertaha.github.io/aws-mcp/configuration/) — environment variables, MCP client setup, local dev.
-- [CLI](https://rangertaha.github.io/aws-mcp/cli/) — `aws mcp`, `aws test`.
-- [Services](https://rangertaha.github.io/aws-mcp/services/) — the full, generated list of all 426 services and how to add one.
-- [Prompts](https://rangertaha.github.io/aws-mcp/prompts/) — built-in guided workflows.
-- [Architecture](https://rangertaha.github.io/aws-mcp/architecture/) — how discovery and dispatch work.
-- [Development](https://rangertaha.github.io/aws-mcp/development/) — build, test, lint, smoke-test, release.
+- [Install](https://rangertaha.github.io/jenkins-mcp/install/) — prebuilt binaries, `go install`, build from source.
+- [Configuration](https://rangertaha.github.io/jenkins-mcp/configuration/) — environment variables, MCP client setup, local dev.
+- [CLI](https://rangertaha.github.io/jenkins-mcp/cli/) — `jenkins mcp`, `jenkins test`.
+- [Tools](https://rangertaha.github.io/jenkins-mcp/tools/) — the full tool reference and how to add one.
+- [Prompts](https://rangertaha.github.io/jenkins-mcp/prompts/) — built-in guided workflows.
+- [Architecture](https://rangertaha.github.io/jenkins-mcp/architecture/) — how the Jenkins client and tool dispatch work.
+- [Development](https://rangertaha.github.io/jenkins-mcp/development/) — build, test, lint, smoke-test, release.
 
 ## Changelog
 
@@ -76,4 +74,4 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPLv3 — see [LICENSE](LICENSE).

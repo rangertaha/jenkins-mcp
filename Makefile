@@ -1,9 +1,9 @@
-# aws-mcp — build & quality targets
+# jenkins-mcp — build & quality targets
 
-BINARY      := aws
-PKG         := ./cmd/aws
+BINARY      := jenkins
+PKG         := ./cmd/jenkins
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS     := -ldflags "-X github.com/rangertaha/aws-mcp/internal.version=$(VERSION)"
+LDFLAGS     := -ldflags "-X github.com/rangertaha/jenkins-mcp/internal.version=$(VERSION)"
 GOFILES     := $(shell find . -name '*.go' -not -path './vendor/*')
 # Release bump. With svu installed, the next version is computed from
 # conventional-commit history; override with BUMP=major|minor|patch or TAG=vX.Y.Z.
@@ -16,7 +16,7 @@ SHELL       := /usr/bin/env bash
 
 .DEFAULT_GOAL := help
 
-.PHONY: help all build install test cover vet fmt fmt-check lint tidy generate clean run version next bump snapshot
+.PHONY: help all build install test cover vet fmt fmt-check lint tidy clean run version next bump snapshot
 
 ## help: show self-documenting target list
 help:
@@ -64,15 +64,11 @@ fmt-check:
 tidy:
 	go mod tidy
 
-## generate: regenerate internal/awsx/registry/zz_generated_clients.go from services.json
-generate:
-	go run ./internal/gen/services
-
 ## clean: remove build artifacts
 clean:
 	rm -rf bin dist coverage.out
 
-## run: build and run (expects the service env vars in the environment)
+## run: build and run (expects the JENKINS_* env vars in the environment)
 run: build
 	./bin/$(BINARY)
 
