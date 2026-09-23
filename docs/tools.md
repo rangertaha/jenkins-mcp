@@ -1,6 +1,6 @@
 # Tools
 
-jenkins-mcp registers 19 tools, grouped into 6 toolsets. Each toolset can be
+jenkins-mcp registers 22 tools, grouped into 6 toolsets. Each toolset can be
 individually enabled/disabled with `JENKINS_TOOLSETS` (see [Configuration](configuration.md)); a `w` in the R/W column marks a mutating tool, suppressed
 entirely when `JENKINS_READONLY=true`.
 
@@ -22,6 +22,7 @@ a single call.
 | ---- | :-: | ----------- |
 | `jenkins_list_jobs` | r | List jobs at the top level or within a folder. |
 | `jenkins_get_job` | r | Get a job's description, health, buildability, last-build pointers, and parameters. |
+| `jenkins_search_jobs` | r | Find jobs by name substring, searching inside folders (depth 3 by default, max 5). |
 | `jenkins_get_job_config` | r | Get a job's raw `config.xml` — its full definition. |
 
 Folders appear in `jenkins_list_jobs` as entries with `isFolder: true`; descend
@@ -37,6 +38,8 @@ by calling again with `folder` set to that entry's `fullName`.
 | `jenkins_list_artifacts` | r | List the files a build archived. |
 | `jenkins_get_artifact` | r | Read one archived artifact's contents. |
 | `jenkins_get_test_results` | r | Get a build's test results, listing failures with error details. |
+| `jenkins_get_build_stages` | r | List a Pipeline build's stages, statuses and failure reason; `failedStage` names the one to read. |
+| `jenkins_get_stage_log` | r | Read one Pipeline stage's output by step, instead of paging the whole console. |
 | `jenkins_stop_build` | w | Abort a running build. |
 
 `build` accepts a build number or any Jenkins permalink (`lastBuild`,
@@ -61,6 +64,12 @@ Use `jenkins_cancel_queue_item` for a build that has not started yet, and
 | ---- | :-: | ----------- |
 | `jenkins_list_nodes` | r | List build agents/nodes and their online/idle status. |
 | `jenkins_get_node` | r | Get one node's status and per-executor activity. |
+
+`jenkins_get_build_stages` and `jenkins_get_stage_log` read the Pipeline Stage
+View plugin's `wfapi` endpoints, which Jenkins core does not provide. On an
+instance without the Pipeline plugins, or for a freestyle build, Jenkins
+answers `wfapi` with a 404 and both tools report `isPipeline: false` rather
+than failing — so it is always safe to try them first on a failed build.
 
 Pass `jenkins_get_node` the `name` field from `jenkins_list_nodes`, not
 `displayName`. For the controller the two differ — Jenkins reports the display

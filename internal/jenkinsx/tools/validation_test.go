@@ -103,6 +103,30 @@ func TestRequiredStringInputsRejected(t *testing.T) {
 			_, _, err := (&buildTools{client: c}).stopBuild(context.Background(), nil, StopBuildInput{Job: "demo"})
 			return err
 		}},
+		{"getBuildStages/job", func() error {
+			_, _, err := (&buildTools{client: c}).getBuildStages(context.Background(), nil, GetBuildStagesInput{Build: "42"})
+			return err
+		}},
+		{"getBuildStages/build", func() error {
+			_, _, err := (&buildTools{client: c}).getBuildStages(context.Background(), nil, GetBuildStagesInput{Job: "demo"})
+			return err
+		}},
+		{"getStageLog/job", func() error {
+			_, _, err := (&buildTools{client: c}).getStageLog(context.Background(), nil, GetStageLogInput{Build: "42", StageID: "11"})
+			return err
+		}},
+		{"getStageLog/build", func() error {
+			_, _, err := (&buildTools{client: c}).getStageLog(context.Background(), nil, GetStageLogInput{Job: "demo", StageID: "11"})
+			return err
+		}},
+		{"getStageLog/stageId", func() error {
+			_, _, err := (&buildTools{client: c}).getStageLog(context.Background(), nil, GetStageLogInput{Job: "demo", Build: "42"})
+			return err
+		}},
+		{"searchJobs/query", func() error {
+			_, _, err := (&jobTools{client: c}).searchJobs(context.Background(), nil, SearchJobsInput{})
+			return err
+		}},
 	}
 
 	for _, tc := range cases {

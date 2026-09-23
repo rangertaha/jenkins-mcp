@@ -45,6 +45,14 @@ func RegisterJobs(s *server.Server, c *jenkinsx.Client) {
 		Description: "Get a job's raw config.xml — its full definition, including build steps, SCM, triggers " +
 			"and publishers. Use this when jenkins_get_job's summary isn't enough to explain how a job is set up.",
 	}, t.getJobConfig)
+	server.Register(s, server.ToolDef{
+		Name:  "jenkins_search_jobs",
+		Title: "Search Jenkins jobs by name",
+		Description: "Find jobs whose name contains a substring, searching inside folders too. Use this instead " +
+			"of walking folders with repeated jenkins_list_jobs calls when you know part of a job's name but not " +
+			"where it lives. Searches to depth 3 by default (maximum 5) and returns the matches' fullName, which " +
+			"is what every other job tool takes as its job argument.",
+	}, t.searchJobs)
 	s.NoteToolset(jobsToolset)
 }
 
@@ -294,4 +302,109 @@ func (t *jobTools) getJobConfig(ctx context.Context, _ *mcp.CallToolRequest, in 
 
 	xml, truncated := truncate(body, maxTextBytes)
 	return nil, JobConfig{Job: in.Job, XML: xml, Truncated: truncated}, nil
+}
+
+// Job-search recursion depth. Each level of nesting multiplies the work
+// Jenkins does to answer, so the depth is bounded and the default is
+// shallow enough to stay fast on a large instance while still reaching
+// jobs two folders deep.
+const (
+	defaultSearchDepth = 3
+	maxSearchDepth     = 5
+)
+
+// SearchJobsInput is the input to jenkins_search_jobs.
+type SearchJobsInput struct {
+	Query string `json:"query" jsonschema:"case-insensitive substring to match against job names"`
+	Depth int    `json:"depth,omitempty" jsonschema:"how many folder levels to search (default 3, maximum 5)"`
+	Limit int    `json:"limit,omitempty" jsonschema:"maximum matches to return (default 50, maximum 200)"`
+}
+
+// RefineSchema bounds the query, depth and limit.
+func (SearchJobsInput) RefineSchema(s *jsonschema.Schema) {
+	refineRequiredString(s, "query")
+	if p, ok := s.Properties["depth"]; ok {
+		p.Minimum = ptr(1.0)
+		p.Maximum = ptr(float64(maxSearchDepth))
+	}
+	if p, ok := s.Properties["limit"]; ok {
+		p.Minimum = ptr(1.0)
+		p.Maximum = ptr(float64(maxPageLimit))
+	}
+}
+
+// SearchResults is the output of jenkins_search_jobs.
+type SearchResults struct {
+	Count      int          `json:"count"`
+	Items      []JobSummary `json:"items"`
+	Truncated  bool         `json:"truncated" jsonschema:"true when more jobs matched than limit allowed; narrow the query"`
+	DepthLimit int          `json:"depthLimit" jsonschema:"folder depth actually searched; a job nested deeper than this was not considered"`
+}
+
+// nestedJob mirrors jenkinsJob but carries the recursive jobs[] that folder
+// entries contain, so one request can walk a folder tree.
+type nestedJob struct {
+	jenkinsJob
+	Jobs []nestedJob `json:"jobs"`
+}
+
+// searchTree builds the nested jobs[...] selector for the given depth, e.g.
+// depth 2 -> "jobs[<fields>,jobs[<fields>]]". Verified against Jenkins
+// 2.568.3: nesting resolves folder contents in a single request, and each
+// level reports fullName as the "team-a/sub/job" path other tools accept.
+func searchTree(depth int) string {
+	inner := jobFieldsTree
+	for i := 1; i < depth; i++ {
+		inner = jobFieldsTree + ",jobs[" + inner + "]"
+	}
+	return "jobs[" + inner + "]"
+}
+
+func (t *jobTools) searchJobs(ctx context.Context, _ *mcp.CallToolRequest, in SearchJobsInput) (*mcp.CallToolResult, SearchResults, error) {
+	if err := requireNonEmpty("query", in.Query); err != nil {
+		return nil, SearchResults{}, err
+	}
+	depth := in.Depth
+	switch {
+	case depth <= 0:
+		depth = defaultSearchDepth
+	case depth > maxSearchDepth:
+		depth = maxSearchDepth
+	}
+	limit := effectiveLimit(in.Limit)
+
+	var raw struct {
+		Jobs []nestedJob `json:"jobs"`
+	}
+	query := url.Values{"tree": {searchTree(depth)}}
+	if err := t.client.Get(ctx, "/api/json", query, &raw); err != nil {
+		return nil, SearchResults{}, err
+	}
+
+	needle := strings.ToLower(strings.TrimSpace(in.Query))
+	out := SearchResults{Items: []JobSummary{}, DepthLimit: depth}
+
+	var walk func(jobs []nestedJob)
+	walk = func(jobs []nestedJob) {
+		for _, j := range jobs {
+			if out.Truncated {
+				return
+			}
+			// Match on the short name, not the full path: searching for
+			// "api" should not match every job inside a folder named
+			// "api-team".
+			if strings.Contains(strings.ToLower(j.Name), needle) {
+				if len(out.Items) >= limit {
+					out.Truncated = true
+					return
+				}
+				out.Items = append(out.Items, j.summary())
+			}
+			walk(j.Jobs)
+		}
+	}
+	walk(raw.Jobs)
+
+	out.Count = len(out.Items)
+	return nil, out, nil
 }

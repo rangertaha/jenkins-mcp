@@ -69,6 +69,21 @@ func RegisterBuilds(s *server.Server, c *jenkinsx.Client) {
 			"hasResults=false (not an error) for a job that publishes no test report.",
 	}, t.getTestResults)
 	server.Register(s, server.ToolDef{
+		Name:  "jenkins_get_build_stages",
+		Title: "Get Jenkins Pipeline build stages",
+		Description: "List a Pipeline build's stages with their status, duration and failure reason. Start here " +
+			"for a failed Pipeline build instead of reading the whole console log: it names which stage broke, and " +
+			"failedStage feeds straight into jenkins_get_stage_log. Returns isPipeline=false (not an error) for a " +
+			"freestyle build or an instance without the Pipeline plugins.",
+	}, t.getBuildStages)
+	server.Register(s, server.ToolDef{
+		Name:  "jenkins_get_stage_log",
+		Title: "Get a Jenkins Pipeline stage's log",
+		Description: "Read just one Pipeline stage's output, broken down by step. This is the cheap way to see why " +
+			"a stage failed — it avoids paging the entire build console. Take stageId from " +
+			"jenkins_get_build_stages (its failedStage field points at the stage worth reading).",
+	}, t.getStageLog)
+	server.Register(s, server.ToolDef{
 		Name:  "jenkins_stop_build",
 		Title: "Stop a running Jenkins build",
 		Description: "Abort a build that is currently running. The build ends with result ABORTED. Stopping a " +
@@ -349,6 +364,7 @@ type GetBuildConsoleInput struct {
 	Build    string `json:"build" jsonschema:"build number, or a permalink such as lastBuild"`
 	Start    int64  `json:"start,omitempty" jsonschema:"byte offset to resume from; 0 for the beginning, or the previous response's nextStart"`
 	MaxBytes int    `json:"maxBytes,omitempty" jsonschema:"maximum bytes of log to return in this call (default and maximum 65536)"`
+	Tail     bool   `json:"tail,omitempty" jsonschema:"read the END of the log instead of the beginning, ignoring start; use this when diagnosing a failure, since the error is at the end"`
 }
 
 // RefineSchema bounds the offset and size arguments and constrains build.
@@ -390,6 +406,24 @@ func (t *buildTools) getBuildConsole(ctx context.Context, _ *mcp.CallToolRequest
 	}
 
 	path := buildPath(in.Job, in.Build) + "/logText/progressiveText"
+
+	if in.Tail {
+		// Jenkins has no negative offset, and reading past the end of the
+		// log does not return an empty body — it returns the whole log from
+		// the start (verified against 2.568.3), which is exactly the
+		// context-blowing read tail exists to avoid. So ask for the size
+		// with a HEAD first and seek back from it.
+		headers, err := t.client.Head(ctx, path, url.Values{"start": {"0"}})
+		if err != nil {
+			return nil, ConsoleOutput{}, err
+		}
+		if size, perr := strconv.ParseInt(headers.Get("X-Text-Size"), 10, 64); perr == nil {
+			if start = size - int64(maxBytes); start < 0 {
+				start = 0
+			}
+		}
+	}
+
 	query := url.Values{"start": {strconv.FormatInt(start, 10)}}
 
 	body, headers, err := t.client.Text(ctx, path, query)

@@ -12,8 +12,8 @@ import (
 // registers. Assemble makes no network calls (jenkinsx.NewClient only
 // parses the base URL), so these hermetic tests need no real Jenkins.
 var toolCounts = map[string]int{
-	"jobs":    3,
-	"builds":  7,
+	"jobs":    4,
+	"builds":  9,
 	"queue":   2,
 	"nodes":   2,
 	"views":   2,

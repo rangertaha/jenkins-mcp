@@ -23,12 +23,12 @@ in Go, exposing **Jenkins** as tools an LLM client (Claude Desktop/Code, Cursor,
 and others) can call: list and inspect jobs, trigger and diagnose builds, watch
 the queue, and check node/plugin status.
 
-19 tools across 6 toolsets, each independently enable-able with `JENKINS_TOOLSETS`:
+22 tools across 6 toolsets, each independently enable-able with `JENKINS_TOOLSETS`:
 
 | Toolset   | Tools                                                                           |
 | --------- | -------------------------------------------------------------------------------- |
-| `jobs`    | `jenkins_list_jobs`, `jenkins_get_job`, `jenkins_get_job_config`                 |
-| `builds`  | `jenkins_get_build`, `jenkins_trigger_build`, `jenkins_get_build_console`, `jenkins_list_artifacts`, `jenkins_get_artifact`, `jenkins_get_test_results`, `jenkins_stop_build` |
+| `jobs`    | `jenkins_list_jobs`, `jenkins_get_job`, `jenkins_get_job_config`, `jenkins_search_jobs`                 |
+| `builds`  | `jenkins_get_build`, `jenkins_trigger_build`, `jenkins_get_build_console`, `jenkins_list_artifacts`, `jenkins_get_artifact`, `jenkins_get_test_results`, `jenkins_get_build_stages`, `jenkins_get_stage_log`, `jenkins_stop_build` |
 | `queue`   | `jenkins_list_queue`, `jenkins_cancel_queue_item`                                |
 | `nodes`   | `jenkins_list_nodes`, `jenkins_get_node`                                         |
 | `views`   | `jenkins_list_views`, `jenkins_get_view`                                         |

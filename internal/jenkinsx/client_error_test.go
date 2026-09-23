@@ -186,3 +186,39 @@ func TestContextCancellationAborts(t *testing.T) {
 		t.Fatal("Get with a cancelled context should fail")
 	}
 }
+
+// TestHeadReturnsHeadersWithoutBody covers the size probe the console tail
+// depends on: Jenkins reports a build log's length in X-Text-Size, and a
+// GET cannot be used to read it cheaply because an out-of-range start
+// returns the whole log rather than nothing.
+func TestHeadReturnsHeadersWithoutBody(t *testing.T) {
+	var gotMethod string
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		w.Header().Set("X-Text-Size", "7184")
+		_, _ = w.Write([]byte("this body must not be needed"))
+	})
+
+	headers, err := c.Head(context.Background(), "/job/demo/1/logText/progressiveText", nil)
+	if err != nil {
+		t.Fatalf("Head: %v", err)
+	}
+	if gotMethod != http.MethodHead {
+		t.Errorf("method = %q, want HEAD", gotMethod)
+	}
+	if got := headers.Get("X-Text-Size"); got != "7184" {
+		t.Errorf("X-Text-Size = %q, want 7184", got)
+	}
+}
+
+func TestHeadPropagatesStatusError(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
+
+	if _, err := c.Head(context.Background(), "/missing", nil); err == nil {
+		t.Error("expected an error for a 404")
+	} else if !IsNotFound(err) {
+		t.Errorf("err = %v, want a not-found StatusError", err)
+	}
+}

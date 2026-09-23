@@ -230,8 +230,8 @@ func TestRegisterBuildsSkipsWriteToolsWhenReadOnly(t *testing.T) {
 	s := server.New("test", "0.0.0", true)
 	RegisterBuilds(s, c)
 
-	if s.ToolCount() != 5 {
-		t.Errorf("ToolCount() = %d, want 5 (trigger_build and stop_build suppressed)", s.ToolCount())
+	if s.ToolCount() != 7 {
+		t.Errorf("ToolCount() = %d, want 7 (trigger_build and stop_build suppressed)", s.ToolCount())
 	}
 }
 
@@ -243,7 +243,7 @@ func TestRegisterBuildsRegistersAllToolsWhenNotReadOnly(t *testing.T) {
 	s := server.New("test", "0.0.0", false)
 	RegisterBuilds(s, c)
 
-	if s.ToolCount() != 7 {
-		t.Errorf("ToolCount() = %d, want 7", s.ToolCount())
+	if s.ToolCount() != 9 {
+		t.Errorf("ToolCount() = %d, want 9", s.ToolCount())
 	}
 }

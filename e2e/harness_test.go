@@ -109,6 +109,14 @@ func (j *jenkinsInstance) env() []string {
 // t.Cleanup, which runs even when a test fails or panics.
 func startJenkins(t *testing.T) *jenkinsInstance {
 	t.Helper()
+	return startJenkinsImage(t, jenkinsImage)
+}
+
+// startJenkinsImage is startJenkins parameterised by image, so the Pipeline
+// tests can run against a derived image carrying the workflow plugins that
+// stock jenkins/jenkins:lts does not ship.
+func startJenkinsImage(t *testing.T, image string) *jenkinsInstance {
+	t.Helper()
 
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skipf("docker not found in PATH: %v", err)
@@ -151,7 +159,7 @@ func startJenkins(t *testing.T) *jenkinsInstance {
 		"-p", "127.0.0.1:0:8080",
 		"-e", "JAVA_OPTS=-Djenkins.install.runSetupWizard=false",
 		"-v", initDir + ":/usr/share/jenkins/ref/init.groovy.d:ro",
-		jenkinsImage,
+		image,
 	}
 	if out, err := exec.Command("docker", runArgs...).CombinedOutput(); err != nil {
 		t.Fatalf("docker run: %v\n%s", err, out)
@@ -268,4 +276,31 @@ func buildBinary(t *testing.T) string {
 		t.Fatalf("go build ../cmd/jenkins: %v\n%s", err, out)
 	}
 	return bin
+}
+
+// pipelineImage builds (or reuses) a Jenkins image with the Pipeline
+// plugins installed. Stock jenkins/jenkins:lts ships zero plugins, so the
+// wfapi endpoints jenkins_get_build_stages and jenkins_get_stage_log read
+// simply do not exist on it — testing them needs this derived image.
+//
+// The build is cached by Docker's layer cache, so only the first run pays
+// the plugin-download cost.
+func pipelineImage(t *testing.T) string {
+	t.Helper()
+
+	const tag = "jenkins-mcp-e2e-pipeline:lts"
+	dir := t.TempDir()
+	dockerfile := "FROM " + jenkinsImage + "\n" +
+		"RUN jenkins-plugin-cli --plugins workflow-aggregator pipeline-stage-view\n"
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
+		t.Fatalf("writing Dockerfile: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "build", "-t", tag, dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building pipeline image: %v\n%s", err, out)
+	}
+	return tag
 }

@@ -100,6 +100,23 @@ func (c *Client) Text(ctx context.Context, path string, query url.Values) (strin
 	return string(b), resp.Header, nil
 }
 
+// Head performs a HEAD request and returns only the response headers.
+//
+// This exists for one specific job: learning how large a build's console log
+// is without downloading it. Jenkins reports the log's size in X-Text-Size,
+// but reading progressiveText with a start offset past the end of the log
+// does NOT return an empty body — it returns the whole log from the
+// beginning (verified against Jenkins 2.568.3), so a GET cannot be used as a
+// cheap size probe. HEAD returns the same X-Text-Size with no body at all.
+func (c *Client) Head(ctx context.Context, path string, query url.Values) (http.Header, error) {
+	resp, err := c.do(ctx, http.MethodHead, path, query, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return resp.Header, nil
+}
+
 // PostForm performs a POST request with a form-encoded body, attaching a
 // CSRF crumb header when Jenkins requires one. It decodes a JSON response
 // body into out when out is non-nil (some endpoints, like triggering a
