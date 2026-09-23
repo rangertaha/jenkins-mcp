@@ -84,6 +84,10 @@ type jenkinsViewDetail struct {
 }
 
 func (t *viewTools) getView(ctx context.Context, _ *mcp.CallToolRequest, in GetViewInput) (*mcp.CallToolResult, ViewDetail, error) {
+	if err := requireNonEmpty("name", in.Name); err != nil {
+		return nil, ViewDetail{}, err
+	}
+
 	var raw jenkinsViewDetail
 	path := "/view/" + url.PathEscape(in.Name) + "/api/json"
 	query := url.Values{"tree": {"name,url,description,jobs[name,url,color,buildable]"}}

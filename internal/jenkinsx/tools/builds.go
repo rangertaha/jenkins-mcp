@@ -109,6 +109,13 @@ type jenkinsBuildDetail struct {
 }
 
 func (t *buildTools) getBuild(ctx context.Context, _ *mcp.CallToolRequest, in GetBuildInput) (*mcp.CallToolResult, BuildDetail, error) {
+	if err := requireNonEmpty("job", in.Job); err != nil {
+		return nil, BuildDetail{}, err
+	}
+	if err := requireNonEmpty("build", in.Build); err != nil {
+		return nil, BuildDetail{}, err
+	}
+
 	var raw jenkinsBuildDetail
 	path := jenkinsx.JobPath(in.Job) + "/" + url.PathEscape(in.Build) + "/api/json"
 	query := url.Values{"tree": {
@@ -151,6 +158,10 @@ type TriggerBuildOutput struct {
 }
 
 func (t *buildTools) triggerBuild(ctx context.Context, _ *mcp.CallToolRequest, in TriggerBuildInput) (*mcp.CallToolResult, TriggerBuildOutput, error) {
+	if err := requireNonEmpty("job", in.Job); err != nil {
+		return nil, TriggerBuildOutput{}, err
+	}
+
 	endpoint := "/build"
 	form := url.Values{}
 	if len(in.Parameters) > 0 {
@@ -200,6 +211,13 @@ type ConsoleOutput struct {
 }
 
 func (t *buildTools) getBuildConsole(ctx context.Context, _ *mcp.CallToolRequest, in GetBuildConsoleInput) (*mcp.CallToolResult, ConsoleOutput, error) {
+	if err := requireNonEmpty("job", in.Job); err != nil {
+		return nil, ConsoleOutput{}, err
+	}
+	if err := requireNonEmpty("build", in.Build); err != nil {
+		return nil, ConsoleOutput{}, err
+	}
+
 	path := jenkinsx.JobPath(in.Job) + "/" + url.PathEscape(in.Build) + "/logText/progressiveText"
 	query := url.Values{"start": {strconv.FormatInt(in.Start, 10)}}
 

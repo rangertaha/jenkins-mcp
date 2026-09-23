@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -160,8 +159,8 @@ type jenkinsJobDetail struct {
 }
 
 func (t *jobTools) getJob(ctx context.Context, _ *mcp.CallToolRequest, in GetJobInput) (*mcp.CallToolResult, JobDetail, error) {
-	if strings.TrimSpace(in.Job) == "" {
-		return nil, JobDetail{}, fmt.Errorf("job is required")
+	if err := requireNonEmpty("job", in.Job); err != nil {
+		return nil, JobDetail{}, err
 	}
 
 	var raw jenkinsJobDetail

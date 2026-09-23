@@ -117,6 +117,10 @@ type jenkinsNodeDetail struct {
 }
 
 func (t *nodeTools) getNode(ctx context.Context, _ *mcp.CallToolRequest, in GetNodeInput) (*mcp.CallToolResult, NodeDetail, error) {
+	if err := requireNonEmpty("name", in.Name); err != nil {
+		return nil, NodeDetail{}, err
+	}
+
 	var raw jenkinsNodeDetail
 	path := "/computer/" + url.PathEscape(in.Name) + "/api/json"
 	query := url.Values{"tree": {
