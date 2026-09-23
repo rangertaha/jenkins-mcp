@@ -34,7 +34,7 @@ For Claude Code: `claude mcp add jenkins -- jenkins mcp` (set the three `JENKINS
 
 ## Local development
 
-The repo ships a committed [`.mcp.json`](.mcp.json) that runs the server straight from source (`go run ./cmd/jenkins mcp`), so changes take effect on the next session without a build step. Run `cp .env.example .env` and fill in `JENKINS_URL`/`JENKINS_USER`/`JENKINS_TOKEN` before launching Claude Code in this directory.
+The repo ships a committed [`.mcp.json`](https://github.com/rangertaha/jenkins-mcp/blob/main/.mcp.json) that runs the server straight from source (`go run ./cmd/jenkins mcp`), so changes take effect on the next session without a build step. Run `cp .env.example .env` and fill in `JENKINS_URL`/`JENKINS_USER`/`JENKINS_TOKEN` before launching Claude Code in this directory.
 
 ## Next: the CLI
 
