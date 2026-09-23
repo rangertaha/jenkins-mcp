@@ -5,7 +5,10 @@ package tools
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"testing"
+
+	"github.com/rangertaha/jenkins-mcp/internal/jenkinsx"
 )
 
 // TestRequiredStringInputsRejected is the class test for requireNonEmpty:
@@ -135,5 +138,56 @@ func TestRequiredStringInputsRejected(t *testing.T) {
 				t.Errorf("%s: succeeded with a blank required field, want an error", tc.name)
 			}
 		})
+	}
+}
+
+// TestJobPathsMadeOnlyOfSlashesAreRejected extends the class above to a
+// value that is non-blank yet yields no job name. JobPath drops empty
+// segments, so "/" and "//" collapse to "", stripping the /job/<name>
+// prefix and pointing the request at whatever sits at the base URL —
+// jenkins_get_build{job:"/"} asked Jenkins for {base}/lastBuild/api/json.
+func TestJobPathsMadeOnlyOfSlashesAreRejected(t *testing.T) {
+	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request to %s; a job path with no segments should be rejected first", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	for _, job := range []string{"/", "//", " / "} {
+		t.Run(job, func(t *testing.T) {
+			if _, _, err := (&jobTools{client: c}).getJob(context.Background(), nil, GetJobInput{Job: job}); err == nil {
+				t.Errorf("getJob(%q) succeeded, want an error", job)
+			}
+			if _, _, err := (&buildTools{client: c}).getBuild(context.Background(), nil,
+				GetBuildInput{Job: job, Build: "lastBuild"}); err == nil {
+				t.Errorf("getBuild(%q) succeeded, want an error", job)
+			}
+		})
+	}
+}
+
+// TestBuildIDPatternMatchesAcceptedPermalinks pins the schema pattern to the
+// canonical permalink list. These were two separate lists and drifted: the
+// console resource rejected permalinks the equivalent tool accepted.
+func TestBuildIDPatternMatchesAcceptedPermalinks(t *testing.T) {
+	re := regexp.MustCompile(buildIDPattern)
+
+	for _, p := range jenkinsx.BuildPermalinks {
+		if !re.MatchString(p) {
+			t.Errorf("buildIDPattern rejects %q, which the server accepts; a client would refuse the call", p)
+		}
+		if !jenkinsx.IsBuildPermalink(p) {
+			t.Errorf("IsBuildPermalink(%q) = false for a canonical permalink", p)
+		}
+	}
+	for _, ok := range []string{"1", "42", "999999"} {
+		if !re.MatchString(ok) {
+			t.Errorf("buildIDPattern rejects build number %q", ok)
+		}
+	}
+	for _, bad := range []string{"", "-1", "lastBuild ", "latestBuild", "1;2"} {
+		if re.MatchString(bad) {
+			t.Errorf("buildIDPattern accepts %q, which is not a valid build reference", bad)
+		}
 	}
 }

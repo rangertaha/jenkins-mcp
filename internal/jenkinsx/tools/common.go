@@ -12,6 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/jsonschema-go/jsonschema"
+
+	"github.com/rangertaha/jenkins-mcp/internal/jenkinsx"
 )
 
 // EmptyInput is used by tools that take no arguments.
@@ -31,6 +33,22 @@ type EmptyInput struct{}
 func requireNonEmpty(field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s is required", field)
+	}
+	return nil
+}
+
+// requireJobPath validates a job-path input. It is stricter than
+// requireNonEmpty because a job path goes through JobPath, which drops
+// empty segments: "/" and "//" are non-blank yet yield no segments at all,
+// so the request loses its /job/<name> prefix and silently targets whatever
+// sits at the base URL instead — jenkins_get_build{job:"/"} asked Jenkins
+// for {base}/lastBuild/api/json.
+func requireJobPath(field, value string) error {
+	if err := requireNonEmpty(field, value); err != nil {
+		return err
+	}
+	if !jenkinsx.HasJobSegments(value) {
+		return fmt.Errorf("%s %q is not a valid job path: it contains no job name", field, value)
 	}
 	return nil
 }
@@ -125,7 +143,10 @@ func refinePaging(s *jsonschema.Schema) {
 // deliberately no tighter than that, because an MCP client validates the
 // call against this schema *before* it reaches the server, so an
 // over-narrow pattern would reject legitimate builds at the client.
-const buildIDPattern = `^([0-9]+|lastBuild|lastSuccessfulBuild|lastFailedBuild|lastStableBuild|lastCompletedBuild|lastUnsuccessfulBuild|lastUnstableBuild|firstBuild)$`
+// buildIDPattern is derived from jenkinsx.BuildPermalinks rather than
+// written out again, so the schema a client validates against cannot drift
+// from the references the server actually accepts.
+var buildIDPattern = `^([0-9]+|` + strings.Join(jenkinsx.BuildPermalinks, "|") + `)$`
 
 // buildResultEnum is the closed set of values Jenkins reports for a
 // finished build, plus "" which it reports while one is still running.

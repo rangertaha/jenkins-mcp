@@ -6,8 +6,10 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -206,7 +208,7 @@ type jenkinsBuildDetail struct {
 }
 
 func (t *buildTools) getBuild(ctx context.Context, _ *mcp.CallToolRequest, in GetBuildInput) (*mcp.CallToolResult, BuildDetail, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, BuildDetail{}, err
 	}
 	if err := requireNonEmpty("build", in.Build); err != nil {
@@ -283,7 +285,7 @@ type TriggerBuildOutput struct {
 }
 
 func (t *buildTools) triggerBuild(ctx context.Context, _ *mcp.CallToolRequest, in TriggerBuildInput) (*mcp.CallToolResult, TriggerBuildOutput, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, TriggerBuildOutput{}, err
 	}
 
@@ -294,12 +296,20 @@ func (t *buildTools) triggerBuild(ctx context.Context, _ *mcp.CallToolRequest, i
 	// 2.568.3.) So the endpoint cannot be chosen from whether the caller
 	// happened to supply parameters — it depends on how the job is
 	// defined, which costs one lookup to learn.
-	parameterized, err := t.jobIsParameterized(ctx, in.Job)
+	declared, err := t.declaredParameters(ctx, in.Job)
 	if err != nil {
 		return nil, TriggerBuildOutput{}, err
 	}
+	parameterized := len(declared) > 0
 	if len(in.Parameters) > 0 && !parameterized {
 		return nil, TriggerBuildOutput{}, fmt.Errorf("job %q declares no build parameters; omit parameters", in.Job)
+	}
+	// Jenkins silently ignores a parameter the job doesn't declare, so a
+	// typo'd name would queue a build using the default and report success
+	// — the caller believing it had overridden something it hadn't. The
+	// declared names are already in hand from the lookup above.
+	if err := checkDeclared(in.Job, in.Parameters, declared); err != nil {
+		return nil, TriggerBuildOutput{}, err
 	}
 
 	endpoint := "/build"
@@ -323,7 +333,9 @@ func (t *buildTools) triggerBuild(ctx context.Context, _ *mcp.CallToolRequest, i
 
 // jobIsParameterized reports whether the job declares any build
 // parameters, which decides the trigger endpoint.
-func (t *buildTools) jobIsParameterized(ctx context.Context, job string) (bool, error) {
+// declaredParameters returns the names of the build parameters job
+// declares, in order. An empty result means the job is not parameterized.
+func (t *buildTools) declaredParameters(ctx context.Context, job string) ([]string, error) {
 	var raw struct {
 		Property []struct {
 			ParameterDefinitions []struct {
@@ -333,14 +345,17 @@ func (t *buildTools) jobIsParameterized(ctx context.Context, job string) (bool, 
 	}
 	query := url.Values{"tree": {"property[parameterDefinitions[name]]"}}
 	if err := t.client.Get(ctx, jenkinsx.JobPath(job)+"/api/json", query, &raw); err != nil {
-		return false, err
+		return nil, err
 	}
+	var names []string
 	for _, p := range raw.Property {
-		if len(p.ParameterDefinitions) > 0 {
-			return true, nil
+		for _, d := range p.ParameterDefinitions {
+			if d.Name != "" {
+				names = append(names, d.Name)
+			}
 		}
 	}
-	return false, nil
+	return names, nil
 }
 
 // parseQueueID extracts the numeric ID from a queue item URL such as
@@ -392,7 +407,7 @@ type ConsoleOutput struct {
 }
 
 func (t *buildTools) getBuildConsole(ctx context.Context, _ *mcp.CallToolRequest, in GetBuildConsoleInput) (*mcp.CallToolResult, ConsoleOutput, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, ConsoleOutput{}, err
 	}
 	if err := requireNonEmpty("build", in.Build); err != nil {
@@ -504,7 +519,7 @@ type Artifact struct {
 }
 
 func (t *buildTools) listArtifacts(ctx context.Context, _ *mcp.CallToolRequest, in ListArtifactsInput) (*mcp.CallToolResult, PageResult[Artifact], error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, PageResult[Artifact]{}, err
 	}
 	if err := requireNonEmpty("build", in.Build); err != nil {
@@ -549,7 +564,7 @@ type ArtifactContent struct {
 }
 
 func (t *buildTools) getArtifact(ctx context.Context, _ *mcp.CallToolRequest, in GetArtifactInput) (*mcp.CallToolResult, ArtifactContent, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, ArtifactContent{}, err
 	}
 	if err := requireNonEmpty("build", in.Build); err != nil {
@@ -582,8 +597,30 @@ func (t *buildTools) getArtifact(ctx context.Context, _ *mcp.CallToolRequest, in
 		return nil, ArtifactContent{}, err
 	}
 
+	// A binary artifact returned as a JSON string is worse than useless:
+	// encoding/json replaces every invalid byte with U+FFFD, which is three
+	// bytes each, so a 64 KiB capped read can serialize to ~192 KiB of
+	// replacement characters — blowing through the very budget the cap
+	// exists to enforce, and conveying nothing. Refuse it with an
+	// explanation instead of filling the caller's context with garbage.
+	if isBinary(body) {
+		return nil, ArtifactContent{}, fmt.Errorf(
+			"artifact %q is not text (%d bytes of binary content); this tool returns text artifacts such as logs, reports and manifests",
+			in.Path, len(body))
+	}
+
 	content, truncated := truncate(body, maxBytes)
 	return nil, ArtifactContent{Path: in.Path, Content: content, Truncated: truncated}, nil
+}
+
+// isBinary reports whether body looks like binary rather than text. A NUL
+// byte never appears in text, and content that is not valid UTF-8 cannot
+// survive JSON encoding intact.
+func isBinary(body string) bool {
+	if strings.ContainsRune(body, 0) {
+		return true
+	}
+	return !utf8.ValidString(body)
 }
 
 // GetTestResultsInput is the input to jenkins_get_test_results.
@@ -623,7 +660,7 @@ type TestResults struct {
 }
 
 func (t *buildTools) getTestResults(ctx context.Context, _ *mcp.CallToolRequest, in GetTestResultsInput) (*mcp.CallToolResult, TestResults, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, TestResults{}, err
 	}
 	if err := requireNonEmpty("build", in.Build); err != nil {
@@ -631,21 +668,39 @@ func (t *buildTools) getTestResults(ctx context.Context, _ *mcp.CallToolRequest,
 	}
 	limit := effectiveLimit(in.Limit)
 
+	// Jenkins returns two different shapes here. A simple job reports
+	// suites[...] at the top level; a matrix/multi-config job reports
+	// childReports[{result:{suites:[...]}}] instead, with totalCount rather
+	// than passCount. Decoding only the first shape left a matrix build
+	// reporting a failure count with an empty failedTests list and
+	// moreFailures=false — asserting both that tests failed and that none
+	// were withheld.
+	type testSuite struct {
+		Cases []struct {
+			ClassName    string `json:"className"`
+			Name         string `json:"name"`
+			Status       string `json:"status"`
+			ErrorDetails string `json:"errorDetails"`
+		} `json:"cases"`
+	}
 	var raw struct {
-		FailCount int `json:"failCount"`
-		PassCount int `json:"passCount"`
-		SkipCount int `json:"skipCount"`
-		Suites    []struct {
-			Cases []struct {
-				ClassName    string `json:"className"`
-				Name         string `json:"name"`
-				Status       string `json:"status"`
-				ErrorDetails string `json:"errorDetails"`
-			} `json:"cases"`
-		} `json:"suites"`
+		FailCount    int         `json:"failCount"`
+		PassCount    *int        `json:"passCount"`
+		SkipCount    int         `json:"skipCount"`
+		TotalCount   *int        `json:"totalCount"`
+		Suites       []testSuite `json:"suites"`
+		ChildReports []struct {
+			Result struct {
+				Suites []testSuite `json:"suites"`
+			} `json:"result"`
+		} `json:"childReports"`
 	}
 	path := buildPath(in.Job, in.Build) + "/testReport/api/json"
-	query := url.Values{"tree": {"failCount,passCount,skipCount,suites[cases[className,name,status,errorDetails]]"}}
+	query := url.Values{"tree": {
+		"failCount,passCount,skipCount,totalCount," +
+			"suites[cases[className,name,status,errorDetails]]," +
+			"childReports[result[suites[cases[className,name,status,errorDetails]]]]",
+	}}
 	if err := t.client.Get(ctx, path, query, &raw); err != nil {
 		// A job with no test publisher has no testReport at all, which
 		// Jenkins reports as 404. That is an ordinary answer to "did this
@@ -657,12 +712,24 @@ func (t *buildTools) getTestResults(ctx context.Context, _ *mcp.CallToolRequest,
 		return nil, TestResults{}, err
 	}
 
-	out := TestResults{
-		HasResults: true,
-		Total:      raw.PassCount + raw.FailCount + raw.SkipCount,
-		Passed:     raw.PassCount, Failed: raw.FailCount, Skipped: raw.SkipCount,
+	out := TestResults{HasResults: true, Failed: raw.FailCount, Skipped: raw.SkipCount}
+	switch {
+	case raw.TotalCount != nil:
+		// Matrix shape: totalCount is authoritative and passCount absent.
+		out.Total = *raw.TotalCount
+		out.Passed = out.Total - raw.FailCount - raw.SkipCount
+	case raw.PassCount != nil:
+		out.Passed = *raw.PassCount
+		out.Total = *raw.PassCount + raw.FailCount + raw.SkipCount
+	default:
+		out.Total = raw.FailCount + raw.SkipCount
 	}
-	for _, suite := range raw.Suites {
+
+	suites := raw.Suites
+	for _, child := range raw.ChildReports {
+		suites = append(suites, child.Result.Suites...)
+	}
+	for _, suite := range suites {
 		for _, c := range suite.Cases {
 			if c.Status != "FAILED" && c.Status != "REGRESSION" {
 				continue
@@ -697,7 +764,7 @@ type StopBuildOutput struct {
 }
 
 func (t *buildTools) stopBuild(ctx context.Context, _ *mcp.CallToolRequest, in StopBuildInput) (*mcp.CallToolResult, StopBuildOutput, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, StopBuildOutput{}, err
 	}
 	if err := requireNonEmpty("build", in.Build); err != nil {
@@ -710,4 +777,24 @@ func (t *buildTools) stopBuild(ctx context.Context, _ *mcp.CallToolRequest, in S
 		return nil, StopBuildOutput{}, err
 	}
 	return nil, StopBuildOutput{Stopped: true}, nil
+}
+
+// checkDeclared rejects any supplied parameter the job does not declare.
+func checkDeclared(job string, supplied map[string]string, declared []string) error {
+	known := make(map[string]bool, len(declared))
+	for _, n := range declared {
+		known[n] = true
+	}
+	var unknown []string
+	for name := range supplied {
+		if !known[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return fmt.Errorf("job %q does not declare parameter(s) %s; Jenkins would ignore them and build with defaults instead. It declares: %s",
+		job, strings.Join(unknown, ", "), strings.Join(declared, ", "))
 }

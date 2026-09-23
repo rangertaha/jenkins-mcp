@@ -94,7 +94,7 @@ type wfStage struct {
 }
 
 func (t *buildTools) getBuildStages(ctx context.Context, _ *mcp.CallToolRequest, in GetBuildStagesInput) (*mcp.CallToolResult, BuildStages, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, BuildStages{}, err
 	}
 	if err := requireNonEmpty("build", in.Build); err != nil {
@@ -172,7 +172,7 @@ func (StageLog) RefineSchema(s *jsonschema.Schema) {
 }
 
 func (t *buildTools) getStageLog(ctx context.Context, _ *mcp.CallToolRequest, in GetStageLogInput) (*mcp.CallToolResult, StageLog, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, StageLog{}, err
 	}
 	if err := requireNonEmpty("build", in.Build); err != nil {

@@ -37,19 +37,6 @@ const (
 	BuildConsoleURITemplate = "jenkins://build/{+job}/{number}/console"
 )
 
-// buildPermalinks are the symbolic build references Jenkins resolves in a
-// build URL in place of a number. They're accepted here for the same reason
-// jenkins_get_build accepts them: "the last failed build's log" is the most
-// useful console read there is, and requiring the caller to resolve a number
-// first would make the resource strictly weaker than the tool.
-var buildPermalinks = map[string]bool{
-	"lastBuild":           true,
-	"lastSuccessfulBuild": true,
-	"lastFailedBuild":     true,
-	"lastStableBuild":     true,
-	"lastCompletedBuild":  true,
-}
-
 type jenkinsResources struct {
 	client *jenkinsx.Client
 }
@@ -181,7 +168,10 @@ func parseJobConfigURI(uri string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resource URI %q has an invalid job path: %w", uri, err)
 	}
-	if strings.TrimSpace(job) == "" {
+	// A blank check alone lets "/" and "//" through, and JobPath drops
+	// empty segments, so those would produce a request with the /job/...
+	// prefix gone entirely — pointed at whatever sits at the base URL.
+	if !jenkinsx.HasJobSegments(job) {
 		return "", fmt.Errorf("resource URI %q has an empty job path", uri)
 	}
 	return job, nil
@@ -213,7 +203,7 @@ func parseBuildConsoleURI(uri string) (job, build string, err error) {
 		return "", "", fmt.Errorf("resource URI %q has an invalid build: %w", uri, err)
 	}
 
-	if strings.TrimSpace(job) == "" {
+	if !jenkinsx.HasJobSegments(job) {
 		return "", "", fmt.Errorf("resource URI %q has an empty job path", uri)
 	}
 	if err := validateBuild(build); err != nil {
@@ -226,7 +216,7 @@ func parseBuildConsoleURI(uri string) (job, build string, err error) {
 // permalink, so a malformed reference fails here with a clear message rather
 // than as an opaque Jenkins 404 two layers down.
 func validateBuild(build string) error {
-	if buildPermalinks[build] {
+	if jenkinsx.IsBuildPermalink(build) {
 		return nil
 	}
 	n, err := strconv.Atoi(build)

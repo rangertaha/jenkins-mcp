@@ -225,7 +225,7 @@ type jenkinsJobDetail struct {
 }
 
 func (t *jobTools) getJob(ctx context.Context, _ *mcp.CallToolRequest, in GetJobInput) (*mcp.CallToolResult, JobDetail, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, JobDetail{}, err
 	}
 
@@ -291,7 +291,7 @@ type JobConfig struct {
 }
 
 func (t *jobTools) getJobConfig(ctx context.Context, _ *mcp.CallToolRequest, in GetJobConfigInput) (*mcp.CallToolResult, JobConfig, error) {
-	if err := requireNonEmpty("job", in.Job); err != nil {
+	if err := requireJobPath("job", in.Job); err != nil {
 		return nil, JobConfig{}, err
 	}
 

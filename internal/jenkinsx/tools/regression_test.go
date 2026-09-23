@@ -179,3 +179,86 @@ func TestGetStageLogUnknownStageOnPipelineIsAnError(t *testing.T) {
 		t.Errorf("error should name the bad stage ID, got: %v", err)
 	}
 }
+
+// TestGetTestResultsHandlesMatrixShape covers a matrix/multi-config job,
+// where Jenkins nests suites under childReports and reports totalCount
+// instead of passCount. Decoding only the simple shape left the tool saying
+// "3 tests failed, here are none of them, and none were withheld".
+func TestGetTestResultsHandlesMatrixShape(t *testing.T) {
+	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"_class":"hudson.matrix.MatrixTestResult",
+			"failCount":2,"skipCount":1,"totalCount":103,
+			"childReports":[{"result":{"suites":[{"cases":[
+				{"className":"pkg.ATest","name":"alpha","status":"FAILED","errorDetails":"boom"},
+				{"className":"pkg.BTest","name":"beta","status":"REGRESSION","errorDetails":"bang"},
+				{"className":"pkg.CTest","name":"gamma","status":"PASSED"}
+			]}]}}]
+		}`))
+	})
+	tls := &buildTools{client: c}
+
+	_, out, err := tls.getTestResults(context.Background(), nil, GetTestResultsInput{Job: "demo", Build: "1"})
+	if err != nil {
+		t.Fatalf("getTestResults: %v", err)
+	}
+	if !out.HasResults {
+		t.Fatal("HasResults = false, want true")
+	}
+	if len(out.FailedTests) != 2 {
+		t.Errorf("FailedTests = %d (%+v), want the 2 failures nested under childReports",
+			len(out.FailedTests), out.FailedTests)
+	}
+	if out.Total != 103 {
+		t.Errorf("Total = %d, want 103 from totalCount", out.Total)
+	}
+	if out.Passed != 100 {
+		t.Errorf("Passed = %d, want 100 (total - failed - skipped)", out.Passed)
+	}
+}
+
+// TestTriggerBuildRejectsUndeclaredParameter: Jenkins silently ignores a
+// parameter a job does not declare, so a typo'd name would queue a build
+// with the default value and be reported as a successful override.
+func TestTriggerBuildRejectsUndeclaredParameter(t *testing.T) {
+	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/json") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"property":[{"parameterDefinitions":[{"name":"BRANCH"}]}]}`))
+			return
+		}
+		t.Errorf("build should not have been triggered; request reached %s", r.URL.Path)
+		w.Header().Set("Location", "http://x/queue/item/1/")
+		w.WriteHeader(http.StatusCreated)
+	})
+	tls := &buildTools{client: c}
+
+	_, _, err := tls.triggerBuild(context.Background(), nil,
+		TriggerBuildInput{Job: "demo", Parameters: map[string]string{"BRANCHE": "release-2"}})
+	if err == nil {
+		t.Fatal("expected an error for an undeclared parameter, got success")
+	}
+	if !strings.Contains(err.Error(), "BRANCHE") || !strings.Contains(err.Error(), "BRANCH") {
+		t.Errorf("error should name the bad parameter and the declared ones, got: %v", err)
+	}
+}
+
+// TestGetArtifactRefusesBinaryContent: JSON-encoding invalid UTF-8 expands
+// each bad byte into a 3-byte U+FFFD, so a capped read could serialize to
+// several times the cap and convey nothing.
+func TestGetArtifactRefusesBinaryContent(t *testing.T) {
+	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte{0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0xfe, 0x00, 0x01})
+	})
+	tls := &buildTools{client: c}
+
+	_, _, err := tls.getArtifact(context.Background(), nil,
+		GetArtifactInput{Job: "demo", Build: "1", Path: "out/archive.zip"})
+	if err == nil {
+		t.Fatal("expected an error for a binary artifact, got success")
+	}
+	if !strings.Contains(err.Error(), "not text") {
+		t.Errorf("error should explain the artifact is not text, got: %v", err)
+	}
+}
