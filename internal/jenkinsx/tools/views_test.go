@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -35,10 +36,18 @@ func TestGetView(t *testing.T) {
 		if r.URL.EscapedPath() != "/view/My%20View/api/json" {
 			t.Errorf("escaped path = %q, want the URL-escaped view path", r.URL.EscapedPath())
 		}
+		// Regression check for the tree= string once omitting fullName/_class
+		// for embedded jobs: JobSummary.FullName/Class are `omitempty`, so a
+		// missing field decodes as "" with no error — the only way to catch
+		// the regression is to confirm the request itself still asks for them.
+		tree := r.URL.Query().Get("tree")
+		if !strings.Contains(tree, "fullName") || !strings.Contains(tree, "_class") {
+			t.Errorf("tree = %q, want it to request fullName and _class for embedded jobs", tree)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"name":"My View","url":"http://x/view/My%20View/","description":"demo view",
-			"jobs":[{"name":"demo","url":"http://x/job/demo/","color":"blue","buildable":true}]
+			"jobs":[{"name":"demo","fullName":"team-a/demo","url":"http://x/job/demo/","color":"blue","buildable":true,"_class":"hudson.model.FreeStyleProject"}]
 		}`))
 	})
 	tls := &viewTools{client: c}
@@ -49,5 +58,8 @@ func TestGetView(t *testing.T) {
 	}
 	if out.Description != "demo view" || len(out.Jobs) != 1 || out.Jobs[0].Name != "demo" {
 		t.Errorf("out = %+v", out)
+	}
+	if out.Jobs[0].FullName != "team-a/demo" || out.Jobs[0].Class != "hudson.model.FreeStyleProject" {
+		t.Errorf("Jobs[0] = %+v, want FullName and Class populated", out.Jobs[0])
 	}
 }

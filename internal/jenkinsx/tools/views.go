@@ -90,7 +90,7 @@ func (t *viewTools) getView(ctx context.Context, _ *mcp.CallToolRequest, in GetV
 
 	var raw jenkinsViewDetail
 	path := "/view/" + url.PathEscape(in.Name) + "/api/json"
-	query := url.Values{"tree": {"name,url,description,jobs[name,url,color,buildable]"}}
+	query := url.Values{"tree": {"name,url,description,jobs[name,fullName,url,color,buildable,_class]"}}
 	if err := t.client.Get(ctx, path, query, &raw); err != nil {
 		return nil, ViewDetail{}, err
 	}

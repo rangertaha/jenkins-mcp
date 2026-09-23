@@ -47,7 +47,14 @@ type JobSummary struct {
 	Color     string `json:"color,omitempty" jsonschema:"Jenkins status ball color (e.g. blue, red, notbuilt, disabled; an _anime suffix means a build is in progress)"`
 }
 
-// jenkinsJob is the raw shape decoded from Jenkins' job-list JSON.
+// jenkinsJob is the raw shape decoded from Jenkins' job-list JSON. Every
+// tree= string that embeds a jobs[...] sub-selector (listJobs below, and
+// views.go's getView) must request all six fields below by name —
+// name,fullName,url,color,buildable,_class — or the corresponding
+// JobSummary field silently decodes as its zero value instead of erroring,
+// since every field but Name/URL/Buildable is `omitempty` (see
+// views.go's getView, which shipped without fullName/_class and always
+// returned an empty FullName/Class for every job in a view until fixed).
 type jenkinsJob struct {
 	Name      string `json:"name"`
 	FullName  string `json:"fullName"`
