@@ -109,9 +109,9 @@ func TestStatusErrorKeepsPlainTextBody(t *testing.T) {
 	}
 }
 
-// TestStatusErrorHTMLWithoutTitleFallsBackToStatus checks an HTML page with
-// nothing useful in it degrades to the status line rather than markup.
-func TestStatusErrorHTMLWithoutTitleFallsBackToStatus(t *testing.T) {
+// TestStatusErrorHTMLWithoutTitleKeepsText checks an HTML page with no
+// <title> is reduced to its readable text rather than to nothing.
+func TestStatusErrorHTMLWithoutTitleKeepsText(t *testing.T) {
 	err := &StatusError{StatusCode: 500, Status: "500 Internal Server Error", Body: "<html><body>oops</body></html>"}
 	got := err.Error()
 	if strings.Contains(got, "<html>") {
@@ -119,5 +119,87 @@ func TestStatusErrorHTMLWithoutTitleFallsBackToStatus(t *testing.T) {
 	}
 	if !strings.Contains(got, "500") {
 		t.Errorf("error should still report the status: %s", got)
+	}
+	if !strings.Contains(got, "oops") {
+		t.Errorf("error should keep the page's readable text: %s", got)
+	}
+}
+
+// TestStatusErrorKeepsPermissionDiagnostic is the case that matters most for
+// a misconfigured token. Jenkins' 403 page has no <title>, and its actual
+// diagnostic sits in an HTML comment — reducing the body to "" would leave
+// the model a bare "403 Forbidden" and throw away the answer.
+func TestStatusErrorKeepsPermissionDiagnostic(t *testing.T) {
+	body := `<html><head><meta http-equiv='refresh' content='1;url=/login'/></head><body>` +
+		`Authentication required<!-- You are authenticated as: anonymous. ` +
+		`Permission you need to have (but didn't): hudson.model.Item.Read --></body></html>`
+
+	err := &StatusError{StatusCode: 403, Status: "403 Forbidden", Body: body}
+	got := err.Error()
+
+	if !strings.Contains(got, "hudson.model.Item.Read") {
+		t.Errorf("error dropped the permission diagnostic, the one thing worth reporting: %s", got)
+	}
+	if strings.Contains(got, "<meta") || strings.Contains(got, "<body>") {
+		t.Errorf("error still contains markup: %s", got)
+	}
+}
+
+// TestStatusErrorWithoutTitleStillHidesCrumb: the title path is not the only
+// way a body reaches the model, so the markup-stripping path must keep the
+// CSRF crumb out too — it lives in a tag attribute.
+func TestStatusErrorWithoutTitleStillHidesCrumb(t *testing.T) {
+	const crumb = "4d477dbf20d1117474356900d20e23df"
+	body := `<html data-crumb-value="` + crumb + `"><body>Authentication required</body></html>`
+
+	got := (&StatusError{StatusCode: 403, Status: "403 Forbidden", Body: body}).Error()
+	if strings.Contains(got, crumb) {
+		t.Errorf("error leaks the CSRF crumb via the no-title path: %s", got)
+	}
+	if !strings.Contains(got, "Authentication required") {
+		t.Errorf("error should keep the readable text: %s", got)
+	}
+}
+
+// TestDoRejectsDotSegments covers the sibling of the ".." hole: url.JoinPath
+// resolves "." too, which makes a segment VANISH rather than climb — so a
+// job path of "." turned /job/./lastBuild/api/json into
+// /job/lastBuild/api/json, the detail of a job named "lastBuild", returned
+// as a success instead of an input error.
+func TestDoRejectsDotSegments(t *testing.T) {
+	var reached string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c, _ := NewClient(srv.URL, "u", "tok", srv.Client())
+	for _, path := range []string{"/job/./lastBuild/api/json", "/job/team-a/job/./api/json"} {
+		t.Run(path, func(t *testing.T) {
+			reached = ""
+			if err := c.Get(context.Background(), path, nil, nil); err == nil {
+				t.Fatalf("request succeeded and reached %q, want it refused", reached)
+			}
+			if reached != "" {
+				t.Errorf("request reached the server at %q; it must not be sent", reached)
+			}
+		})
+	}
+}
+
+// TestHasJobSegmentsRejectsDotOnlyPaths pins the tool-level check so the
+// caller gets a clear input error rather than the client's refusal.
+func TestHasJobSegmentsRejectsDotOnlyPaths(t *testing.T) {
+	for _, bad := range []string{".", "..", "/", "//", "team-a/.", "./team-a"} {
+		if HasJobSegments(bad) {
+			t.Errorf("HasJobSegments(%q) = true, want false", bad)
+		}
+	}
+	for _, ok := range []string{"demo", "team-a/service-b", "my..build", "v1.2"} {
+		if !HasJobSegments(ok) {
+			t.Errorf("HasJobSegments(%q) = false, want true", ok)
+		}
 	}
 }

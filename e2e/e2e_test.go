@@ -22,6 +22,29 @@ const jobName = "e2e-demo-job"
 // unambiguous to look for.
 const consoleMarker = "E2E_MARKER_OUTPUT"
 
+// stuckJobName is a job that can never start, used to put a deterministic
+// item in the build queue.
+const stuckJobName = "e2e-stuck-job"
+
+// unbuildableConfig pins the job to a label no node has and forbids roaming,
+// so Jenkins queues a build of it forever instead of running it. That makes
+// the queue observable without racing a real build's execution.
+const unbuildableConfig = `<?xml version='1.1' encoding='UTF-8'?>
+<project>
+  <description>jenkins-mcp e2e queue fixture: never runs</description>
+  <keepDependencies>false</keepDependencies>
+  <properties/>
+  <scm class="hudson.scm.NullSCM"/>
+  <assignedNode>label-no-node-has</assignedNode>
+  <canRoam>false</canRoam>
+  <disabled>false</disabled>
+  <triggers/>
+  <concurrentBuild>false</concurrentBuild>
+  <builders/>
+  <publishers/>
+  <buildWrappers/>
+</project>`
+
 // freestyleConfig is a minimal freestyle project. Everything referenced here
 // (FreeStyleProject, NullSCM, hudson.tasks.Shell) is Jenkins core, so this
 // works on a plugin-less instance.
@@ -244,22 +267,77 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
+	// A plugin-less instance is a legitimate state for the stock image, so
+	// a non-empty list can't be required here. What CAN be required is that
+	// the page is self-consistent: count must equal the number of items
+	// returned. Asserting merely that a "count" key exists proves nothing —
+	// PageResult.Count has no omitempty, so it is present in every result
+	// even when the tool is hitting the wrong endpoint entirely.
 	t.Run("list_plugins", func(t *testing.T) {
 		got := client.mustCallTool("jenkins_list_plugins", nil)
-		count, _ := got["count"].(float64)
-		t.Logf("installed plugins: %v", count)
-		// A plugin-less instance is a legitimate state for this image, so
-		// only the shape is asserted, not a non-empty list.
-		if _, ok := got["count"]; !ok {
-			t.Errorf("result has no count field: %v", got)
+		assertCoherentPage(t, "jenkins_list_plugins", got)
+
+		for _, p := range items(t, "jenkins_list_plugins", got) {
+			if name, _ := p["shortName"].(string); name == "" {
+				t.Errorf("plugin entry has no shortName: %v", p)
+			}
 		}
 	})
 
-	t.Run("list_queue", func(t *testing.T) {
-		got := client.mustCallTool("jenkins_list_queue", nil)
-		if _, ok := got["count"]; !ok {
-			t.Errorf("result has no count field: %v", got)
+	// Real coverage for the queue toolset. A job pinned to a label no node
+	// has can never start, so it sits in the queue deterministically —
+	// unlike polling for an ordinary build, which races its own execution.
+	// This exercises list_queue against a genuinely non-empty queue and
+	// gives jenkins_cancel_queue_item its only end-to-end test.
+	t.Run("queue_lists_and_cancels_a_stuck_build", func(t *testing.T) {
+		createJob(t, jenkins, stuckJobName, unbuildableConfig)
+		client.mustCallTool("jenkins_trigger_build", map[string]any{"job": stuckJobName})
+
+		var id float64
+		var why string
+		deadline := time.Now().Add(60 * time.Second)
+		for time.Now().Before(deadline) {
+			got := client.mustCallTool("jenkins_list_queue", nil)
+			assertCoherentPage(t, "jenkins_list_queue", got)
+			for _, item := range items(t, "jenkins_list_queue", got) {
+				if name, _ := item["taskName"].(string); name == stuckJobName {
+					id, _ = item["id"].(float64)
+					why, _ = item["why"].(string)
+				}
+			}
+			if id > 0 {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
+		if id <= 0 {
+			t.Fatalf("%s never appeared in the queue; jenkins_list_queue is not reporting queued items", stuckJobName)
+		}
+		if why == "" {
+			t.Errorf("queue item %v has no why; Jenkins always explains what an item waits for", id)
+		}
+		t.Logf("stuck queue item %v: %s", id, why)
+
+		cancelled := client.mustCallTool("jenkins_cancel_queue_item", map[string]any{"id": id})
+		if ok, _ := cancelled["canceled"].(bool); !ok {
+			t.Errorf("cancel reported canceled=false: %v", cancelled)
+		}
+
+		// The cancellation must actually take effect, not just report success.
+		deadline = time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			still := false
+			for _, item := range items(t, "jenkins_list_queue", client.mustCallTool("jenkins_list_queue", nil)) {
+				if name, _ := item["taskName"].(string); name == stuckJobName {
+					still = true
+				}
+			}
+			if !still {
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		t.Errorf("%s is still queued after jenkins_cancel_queue_item reported success", stuckJobName)
 	})
 
 	t.Run("list_views", func(t *testing.T) {
@@ -279,6 +357,12 @@ func TestEndToEnd(t *testing.T) {
 	t.Run("get_view", func(t *testing.T) {
 		listed := client.mustCallTool("jenkins_list_views", nil)
 		list := items(t, "jenkins_list_views", listed)
+		if len(list) == 0 {
+			// Without this guard an empty list panics on list[0], and a Go
+			// test panic kills the process: every later subtest AND the
+			// whole pipeline suite would silently never run.
+			t.Fatal("no views returned; cannot round-trip into jenkins_get_view")
+		}
 		name, _ := list[0]["name"].(string)
 
 		// jenkins_get_view returns a ViewDetail, not a ListResult: its jobs
@@ -584,4 +668,29 @@ func keysOf(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// assertCoherentPage checks a paged list result is internally consistent.
+//
+// It exists because asserting that a "count" key is merely PRESENT proves
+// nothing: PageResult.Count has no omitempty, so it appears in every result
+// even from a tool hitting the wrong endpoint. count == len(items) is the
+// weakest assertion that can actually fail.
+func assertCoherentPage(t *testing.T, tool string, structured map[string]any) {
+	t.Helper()
+
+	count, ok := structured["count"].(float64)
+	if !ok {
+		t.Errorf("%s: result has no numeric count: %v", tool, structured)
+		return
+	}
+	list := items(t, tool, structured)
+	if int(count) != len(list) {
+		t.Errorf("%s: count = %v but returned %d items", tool, count, len(list))
+	}
+	if count == 0 {
+		if hasMore, _ := structured["hasMore"].(bool); hasMore {
+			t.Errorf("%s: hasMore is true on an empty page: %v", tool, structured)
+		}
+	}
 }

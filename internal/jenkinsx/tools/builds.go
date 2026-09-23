@@ -597,19 +597,26 @@ func (t *buildTools) getArtifact(ctx context.Context, _ *mcp.CallToolRequest, in
 		return nil, ArtifactContent{}, err
 	}
 
+	content, truncated := truncate(body, maxBytes)
+
 	// A binary artifact returned as a JSON string is worse than useless:
-	// encoding/json replaces every invalid byte with U+FFFD, which is three
-	// bytes each, so a 64 KiB capped read can serialize to ~192 KiB of
-	// replacement characters — blowing through the very budget the cap
-	// exists to enforce, and conveying nothing. Refuse it with an
-	// explanation instead of filling the caller's context with garbage.
-	if isBinary(body) {
+	// encoding/json replaces every invalid byte with U+FFFD, three bytes
+	// each, so a 64 KiB capped read can serialize to ~192 KiB of
+	// replacement characters — past the budget the cap exists to enforce,
+	// conveying nothing. Refuse it rather than filling the caller's context
+	// with garbage.
+	//
+	// The check runs on the TRUNCATED window, not the whole download: the
+	// U+FFFD expansion only applies to what is actually returned, and
+	// checking the full body would reject a 5 MB mostly-ASCII build log
+	// because of one stray latin-1 byte three megabytes past anything this
+	// call would ever show.
+	if isBinary(content) {
 		return nil, ArtifactContent{}, fmt.Errorf(
-			"artifact %q is not text (%d bytes of binary content); this tool returns text artifacts such as logs, reports and manifests",
+			"artifact %q is not text (%d bytes fetched); this tool returns text artifacts such as logs, reports and manifests",
 			in.Path, len(body))
 	}
 
-	content, truncated := truncate(body, maxBytes)
 	return nil, ArtifactContent{Path: in.Path, Content: content, Truncated: truncated}, nil
 }
 

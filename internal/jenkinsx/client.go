@@ -190,12 +190,19 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	return resp, nil
 }
 
-// rejectTraversal returns an error if any segment of p is "..".
+// rejectTraversal returns an error if any segment of p is "." or "..".
 //
-// It checks segments rather than substrings deliberately: a job or artifact
-// legitimately named "my..build" is fine, and only a whole ".." segment can
-// climb a level. Both the raw and percent-decoded forms are checked, since
-// "%2e%2e" decodes to ".." inside url.URL.
+// Both are path-normalization elements that url.URL.JoinPath resolves via
+// path.Join, so both silently retarget a request. ".." climbs a level; "."
+// is subtler but just as wrong — it makes a segment VANISH, so a job path
+// of "." turns /job/./lastBuild/api/json into /job/lastBuild/api/json, the
+// detail of a job named "lastBuild", returned as a success rather than an
+// input error.
+//
+// Segments are compared whole rather than as substrings: a job or artifact
+// legitimately named "my..build" or "v1.2" is fine, and only a complete "."
+// or ".." segment normalizes. Both the raw and percent-decoded forms are
+// checked, since "%2e%2e" decodes to ".." inside url.URL.
 func rejectTraversal(p string) error {
 	candidates := []string{p}
 	if decoded, err := url.PathUnescape(p); err == nil && decoded != p {
@@ -203,8 +210,8 @@ func rejectTraversal(p string) error {
 	}
 	for _, c := range candidates {
 		for _, seg := range strings.Split(c, "/") {
-			if seg == ".." {
-				return fmt.Errorf("jenkinsx: refusing request path %q: a %q path segment could escape the intended endpoint", p, "..")
+			if seg == "." || seg == ".." {
+				return fmt.Errorf("jenkinsx: refusing request path %q: a %q path segment would change which endpoint is requested", p, seg)
 			}
 		}
 	}

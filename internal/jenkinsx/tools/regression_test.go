@@ -262,3 +262,28 @@ func TestGetArtifactRefusesBinaryContent(t *testing.T) {
 		t.Errorf("error should explain the artifact is not text, got: %v", err)
 	}
 }
+
+// TestGetArtifactAllowsMostlyTextWithStrayByte: the binary check runs on the
+// returned window, not the whole download. Checking the full body would
+// reject a large, perfectly readable log because of one stray latin-1 byte
+// megabytes past anything the call would ever show.
+func TestGetArtifactAllowsMostlyTextWithStrayByte(t *testing.T) {
+	body := strings.Repeat("a readable log line\n", 5000) + "\xa0" + strings.Repeat("more text\n", 100)
+
+	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	tls := &buildTools{client: c}
+
+	_, out, err := tls.getArtifact(context.Background(), nil,
+		GetArtifactInput{Job: "demo", Build: "1", Path: "out/build.log", MaxBytes: 1000})
+	if err != nil {
+		t.Fatalf("a mostly-text artifact should be returned, got: %v", err)
+	}
+	if !strings.Contains(out.Content, "a readable log line") {
+		t.Errorf("Content = %.60q, want the readable head of the log", out.Content)
+	}
+	if !out.Truncated {
+		t.Error("Truncated = false, want true for a 1000-byte window of a large log")
+	}
+}

@@ -161,12 +161,14 @@ func startJenkinsImage(t *testing.T, image string) *jenkinsInstance {
 		"-v", initDir + ":/usr/share/jenkins/ref/init.groovy.d:ro",
 		image,
 	}
-	if out, err := exec.Command("docker", runArgs...).CombinedOutput(); err != nil {
-		t.Fatalf("docker run: %v\n%s", err, out)
-	}
-
-	inst := &jenkinsInstance{User: adminUser, container: name}
-
+	// Registered BEFORE docker run, not after: `docker run -d` CREATES the
+	// container and then starts it, so a start-time failure (a bind mount
+	// rejected by SELinux, a path outside Docker Desktop's shared set)
+	// leaves a container behind while the run command exits non-zero. With
+	// the cleanup registered afterwards, the t.Fatalf below would skip
+	// registration entirely and every failed run would leak a container and
+	// its anonymous volume. Removing a container that was never created is
+	// harmless — the error is logged, not fatal.
 	t.Cleanup(func() {
 		if t.Failed() {
 			// Container logs are the only way to diagnose a provisioning
@@ -179,6 +181,12 @@ func startJenkinsImage(t *testing.T, image string) *jenkinsInstance {
 			t.Logf("removing container %s: %v\n%s", name, err, out)
 		}
 	})
+
+	if out, err := exec.Command("docker", runArgs...).CombinedOutput(); err != nil {
+		t.Fatalf("docker run: %v\n%s", err, out)
+	}
+
+	inst := &jenkinsInstance{User: adminUser, container: name}
 
 	port, err := hostPort(name)
 	if err != nil {

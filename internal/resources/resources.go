@@ -221,7 +221,7 @@ func validateBuild(build string) error {
 	}
 	n, err := strconv.Atoi(build)
 	if err != nil || n <= 0 {
-		return fmt.Errorf("build %q is neither a positive build number nor a permalink (lastBuild, lastSuccessfulBuild, lastFailedBuild, lastStableBuild, lastCompletedBuild)", build)
+		return fmt.Errorf("build %q is neither a positive build number nor a permalink (%s)", build, strings.Join(jenkinsx.BuildPermalinks, ", "))
 	}
 	return nil
 }

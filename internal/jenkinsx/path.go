@@ -64,5 +64,17 @@ func IsBuildPermalink(ref string) bool {
 // A blank check alone is not enough: JobPath drops empty segments, so "/",
 // "//" and "   /  " all survive a non-blank test and then collapse to "",
 // leaving the request without its /job/<name> prefix entirely and pointed
-// at whatever sits at the base URL instead.
-func HasJobSegments(name string) bool { return JobPath(name) != "" }
+// at whatever sits at the base URL instead. "." and ".." segments are
+// rejected for the same reason — url.URL.JoinPath resolves them, so they
+// retarget the request rather than naming a job.
+func HasJobSegments(name string) bool {
+	if JobPath(name) == "" {
+		return false
+	}
+	for _, seg := range strings.Split(name, "/") {
+		if seg = strings.TrimSpace(seg); seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
+}
