@@ -63,6 +63,46 @@ func TestRequiredStringInputsRejected(t *testing.T) {
 			_, _, err := (&viewTools{client: c}).getView(context.Background(), nil, GetViewInput{})
 			return err
 		}},
+		{"getJobConfig/job", func() error {
+			_, _, err := (&jobTools{client: c}).getJobConfig(context.Background(), nil, GetJobConfigInput{})
+			return err
+		}},
+		{"listArtifacts/job", func() error {
+			_, _, err := (&buildTools{client: c}).listArtifacts(context.Background(), nil, ListArtifactsInput{Build: "42"})
+			return err
+		}},
+		{"listArtifacts/build", func() error {
+			_, _, err := (&buildTools{client: c}).listArtifacts(context.Background(), nil, ListArtifactsInput{Job: "demo"})
+			return err
+		}},
+		{"getArtifact/job", func() error {
+			_, _, err := (&buildTools{client: c}).getArtifact(context.Background(), nil, GetArtifactInput{Build: "42", Path: "a.txt"})
+			return err
+		}},
+		{"getArtifact/build", func() error {
+			_, _, err := (&buildTools{client: c}).getArtifact(context.Background(), nil, GetArtifactInput{Job: "demo", Path: "a.txt"})
+			return err
+		}},
+		{"getArtifact/path", func() error {
+			_, _, err := (&buildTools{client: c}).getArtifact(context.Background(), nil, GetArtifactInput{Job: "demo", Build: "42"})
+			return err
+		}},
+		{"getTestResults/job", func() error {
+			_, _, err := (&buildTools{client: c}).getTestResults(context.Background(), nil, GetTestResultsInput{Build: "42"})
+			return err
+		}},
+		{"getTestResults/build", func() error {
+			_, _, err := (&buildTools{client: c}).getTestResults(context.Background(), nil, GetTestResultsInput{Job: "demo"})
+			return err
+		}},
+		{"stopBuild/job", func() error {
+			_, _, err := (&buildTools{client: c}).stopBuild(context.Background(), nil, StopBuildInput{Build: "42"})
+			return err
+		}},
+		{"stopBuild/build", func() error {
+			_, _, err := (&buildTools{client: c}).stopBuild(context.Background(), nil, StopBuildInput{Job: "demo"})
+			return err
+		}},
 	}
 
 	for _, tc := range cases {

@@ -15,6 +15,7 @@ import (
 	"github.com/rangertaha/jenkins-mcp/internal/jenkinsx"
 	"github.com/rangertaha/jenkins-mcp/internal/jenkinsx/tools"
 	"github.com/rangertaha/jenkins-mcp/internal/prompts"
+	"github.com/rangertaha/jenkins-mcp/internal/resources"
 	"github.com/rangertaha/jenkins-mcp/internal/server"
 )
 
@@ -61,6 +62,12 @@ func Assemble(cfg *config.Config, version string) (*server.Server, func(), error
 	log.SetOutput(os.Stderr)
 
 	prompts.Register(srv)
+
+	// Resources are registered unconditionally: JENKINS_TOOLSETS names
+	// tool areas (jobs, builds, ...) and the resources don't map onto those
+	// one-for-one, so gating them on it would be arbitrary. They are
+	// read-only, so JENKINS_READONLY has nothing to suppress either.
+	resources.Register(srv, client)
 
 	return srv, func() {}, nil
 }

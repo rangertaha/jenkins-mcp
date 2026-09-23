@@ -23,16 +23,19 @@ in Go, exposing **Jenkins** as tools an LLM client (Claude Desktop/Code, Cursor,
 and others) can call: list and inspect jobs, trigger and diagnose builds, watch
 the queue, and check node/plugin status.
 
-14 tools across 6 toolsets, each independently enable-able with `JENKINS_TOOLSETS`:
+19 tools across 6 toolsets, each independently enable-able with `JENKINS_TOOLSETS`:
 
 | Toolset   | Tools                                                                           |
 | --------- | -------------------------------------------------------------------------------- |
-| `jobs`    | `jenkins_list_jobs`, `jenkins_get_job`                                           |
-| `builds`  | `jenkins_get_build`, `jenkins_trigger_build`, `jenkins_get_build_console`         |
+| `jobs`    | `jenkins_list_jobs`, `jenkins_get_job`, `jenkins_get_job_config`                 |
+| `builds`  | `jenkins_get_build`, `jenkins_trigger_build`, `jenkins_get_build_console`, `jenkins_list_artifacts`, `jenkins_get_artifact`, `jenkins_get_test_results`, `jenkins_stop_build` |
 | `queue`   | `jenkins_list_queue`, `jenkins_cancel_queue_item`                                |
 | `nodes`   | `jenkins_list_nodes`, `jenkins_get_node`                                         |
 | `views`   | `jenkins_list_views`, `jenkins_get_view`                                         |
 | `plugins` | `jenkins_list_plugins`, `jenkins_system_info`, `jenkins_whoami`                  |
+
+List tools page (`limit`/`offset`, `hasMore`) and text-returning tools cap their
+output, so one call can't exhaust the model's context.
 
 **📖 Full documentation: [rangertaha.github.io/jenkins-mcp](https://rangertaha.github.io/jenkins-mcp/)** — install options, MCP client setup, the full tool reference, architecture, and development guide all live there. This README only covers the quickstart.
 
@@ -54,7 +57,7 @@ Authentication is a Jenkins username + API token (Jenkins user → Configure →
 | `JENKINS_USER`       |   yes    | Username paired with `JENKINS_TOKEN`.                                |
 | `JENKINS_TOKEN`      |   yes    | Jenkins API token.                                                    |
 | `JENKINS_TOOLSETS`   |    no    | Comma-separated toolset names to enable, or `all` (default).         |
-| `JENKINS_READONLY`   |    no    | `true` to suppress mutating tools (`jenkins_trigger_build`, `jenkins_cancel_queue_item`). |
+| `JENKINS_READONLY`   |    no    | `true` to suppress the mutating tools (`jenkins_trigger_build`, `jenkins_stop_build`, `jenkins_cancel_queue_item`). |
 
 See [Configuration](https://rangertaha.github.io/jenkins-mcp/configuration/) for MCP client setup (Claude Desktop/Code) and local development.
 

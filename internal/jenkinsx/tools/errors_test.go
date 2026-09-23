@@ -47,7 +47,7 @@ var allHandlers = []handlerCall{
 		return err
 	}},
 	{"listQueue", func(c *jenkinsx.Client) error {
-		_, _, err := (&queueTools{client: c}).listQueue(context.Background(), nil, EmptyInput{})
+		_, _, err := (&queueTools{client: c}).listQueue(context.Background(), nil, ListQueueInput{})
 		return err
 	}},
 	{"cancelQueueItem", func(c *jenkinsx.Client) error {
@@ -55,7 +55,26 @@ var allHandlers = []handlerCall{
 		return err
 	}},
 	{"listNodes", func(c *jenkinsx.Client) error {
-		_, _, err := (&nodeTools{client: c}).listNodes(context.Background(), nil, EmptyInput{})
+		_, _, err := (&nodeTools{client: c}).listNodes(context.Background(), nil, ListNodesInput{})
+		return err
+	}},
+	{"getJobConfig", func(c *jenkinsx.Client) error {
+		_, _, err := (&jobTools{client: c}).getJobConfig(context.Background(), nil, GetJobConfigInput{Job: "demo"})
+		return err
+	}},
+	{"listArtifacts", func(c *jenkinsx.Client) error {
+		_, _, err := (&buildTools{client: c}).listArtifacts(context.Background(), nil,
+			ListArtifactsInput{Job: "demo", Build: "1"})
+		return err
+	}},
+	{"getArtifact", func(c *jenkinsx.Client) error {
+		_, _, err := (&buildTools{client: c}).getArtifact(context.Background(), nil,
+			GetArtifactInput{Job: "demo", Build: "1", Path: "out/result.txt"})
+		return err
+	}},
+	{"stopBuild", func(c *jenkinsx.Client) error {
+		_, _, err := (&buildTools{client: c}).stopBuild(context.Background(), nil,
+			StopBuildInput{Job: "demo", Build: "1"})
 		return err
 	}},
 	{"getNode", func(c *jenkinsx.Client) error {
@@ -63,7 +82,7 @@ var allHandlers = []handlerCall{
 		return err
 	}},
 	{"listViews", func(c *jenkinsx.Client) error {
-		_, _, err := (&viewTools{client: c}).listViews(context.Background(), nil, EmptyInput{})
+		_, _, err := (&viewTools{client: c}).listViews(context.Background(), nil, ListViewsInput{})
 		return err
 	}},
 	{"getView", func(c *jenkinsx.Client) error {
@@ -71,7 +90,7 @@ var allHandlers = []handlerCall{
 		return err
 	}},
 	{"listPlugins", func(c *jenkinsx.Client) error {
-		_, _, err := (&systemTools{client: c}).listPlugins(context.Background(), nil, EmptyInput{})
+		_, _, err := (&systemTools{client: c}).listPlugins(context.Background(), nil, ListPluginsInput{})
 		return err
 	}},
 	{"systemInfo", func(c *jenkinsx.Client) error {
@@ -113,10 +132,12 @@ func TestHandlersPropagateDecodeErrors(t *testing.T) {
 
 	for _, h := range allHandlers {
 		switch h.name {
-		// These don't decode a JSON body on success: the console log is raw
-		// text, and a build trigger reports its result via the Location
-		// header, so neither can fail to decode.
-		case "getBuildConsole", "triggerBuild", "triggerBuildWithParameters", "cancelQueueItem":
+		// These don't decode a JSON body on success: the console log,
+		// config.xml and artifacts are raw text, a build trigger reports its
+		// result via the Location header, and stop/cancel report via status
+		// code alone — so none of them can fail to decode.
+		case "getBuildConsole", "triggerBuild", "triggerBuildWithParameters", "cancelQueueItem",
+			"getJobConfig", "getArtifact", "stopBuild":
 			continue
 		}
 		t.Run(h.name, func(t *testing.T) {
@@ -156,7 +177,7 @@ func TestParseQueueID(t *testing.T) {
 // the zero value is unambiguous — and jenkins_cancel_queue_item rejects id<=0
 // rather than acting on it.
 func TestTriggerBuildWithoutLocationHeader(t *testing.T) {
-	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+	c := triggerMock(t, "", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	})
 

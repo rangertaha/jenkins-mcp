@@ -50,6 +50,7 @@ nav:
   - Configuration: configuration.md
   - CLI: cli.md
   - Tools: tools.md
+  - Resources: resources.md
   - Prompts: prompts.md
   - Architecture: architecture.md
   - Development: development.md

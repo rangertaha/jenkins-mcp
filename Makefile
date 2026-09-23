@@ -39,9 +39,12 @@ test:
 	go test -race ./...
 
 ## e2e: run end-to-end tests against a real Jenkins in Docker (needs Docker; several minutes)
+# -count=1 is required, not just hygiene: the suite builds the binary in a
+# subprocess, so Go's test cache has no idea it depends on internal/**. Without
+# it, a run after changing the server happily replays a stale PASS.
 e2e:
 	@command -v docker >/dev/null 2>&1 || { echo "docker not found; the e2e suite needs a running Docker daemon"; exit 1; }
-	go test -tags=e2e -timeout=20m -v ./e2e/...
+	go test -tags=e2e -count=1 -timeout=20m -v ./e2e/...
 
 ## cover: run tests and open a coverage summary
 cover:

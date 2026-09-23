@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/url"
 
+	"github.com/google/jsonschema-go/jsonschema"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rangertaha/jenkins-mcp/internal/jenkinsx"
@@ -22,9 +24,10 @@ type nodeTools struct {
 func RegisterNodes(s *server.Server, c *jenkinsx.Client) {
 	t := &nodeTools{client: c}
 	server.Register(s, server.ToolDef{
-		Name:        "jenkins_list_nodes",
-		Title:       "List Jenkins nodes",
-		Description: "List build agents/nodes and their online/idle status.",
+		Name:  "jenkins_list_nodes",
+		Title: "List Jenkins nodes",
+		Description: "List build agents and the controller's built-in node, with their online/offline and " +
+			"idle status. Use an entry's name (not displayName) as jenkins_get_node's name argument.",
 	}, t.listNodes)
 	server.Register(s, server.ToolDef{
 		Name:  "jenkins_get_node",
@@ -98,26 +101,40 @@ func (n jenkinsNode) summary() NodeSummary {
 	}
 }
 
-func (t *nodeTools) listNodes(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, server.ListResult[NodeSummary], error) {
+// ListNodesInput is the input to jenkins_list_nodes.
+type ListNodesInput struct {
+	Limit  int `json:"limit,omitempty" jsonschema:"maximum nodes to return (default 50, maximum 200)"`
+	Offset int `json:"offset,omitempty" jsonschema:"number of nodes to skip, for paging"`
+}
+
+// RefineSchema bounds the paging arguments.
+func (ListNodesInput) RefineSchema(s *jsonschema.Schema) { refinePaging(s) }
+
+func (t *nodeTools) listNodes(ctx context.Context, _ *mcp.CallToolRequest, in ListNodesInput) (*mcp.CallToolResult, PageResult[NodeSummary], error) {
+	limit, offset := effectiveLimit(in.Limit), effectiveOffset(in.Offset)
+
 	var raw struct {
 		Computer []jenkinsNode `json:"computer"`
 	}
-	query := url.Values{"tree": {"computer[_class,displayName,offline,temporarilyOffline,idle,numExecutors,offlineCauseReason,assignedLabels[name]]"}}
+	query := url.Values{"tree": {"computer[_class,displayName,offline,temporarilyOffline,idle,numExecutors,offlineCauseReason,assignedLabels[name]]" + treeRange(offset, limit)}}
 	if err := t.client.Get(ctx, "/computer/api/json", query, &raw); err != nil {
-		return nil, server.ListResult[NodeSummary]{}, err
+		return nil, PageResult[NodeSummary]{}, err
 	}
 
 	items := make([]NodeSummary, 0, len(raw.Computer))
 	for _, n := range raw.Computer {
 		items = append(items, n.summary())
 	}
-	return nil, server.List(items), nil
+	return nil, newPage(items, offset, limit), nil
 }
 
 // GetNodeInput is the input to jenkins_get_node.
 type GetNodeInput struct {
 	Name string `json:"name" jsonschema:"node identifier from jenkins_list_nodes' name field (not displayName); the controller is (built-in)"`
 }
+
+// RefineSchema requires a non-blank node name.
+func (GetNodeInput) RefineSchema(s *jsonschema.Schema) { refineRequiredString(s, "name") }
 
 // ExecutorStatus describes one executor slot on a node.
 type ExecutorStatus struct {

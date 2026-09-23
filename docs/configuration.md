@@ -10,7 +10,7 @@ web session or SSO login. Server behavior is configured with:
 | `JENKINS_USER`      |   yes    | Username paired with `JENKINS_TOKEN`.                               |
 | `JENKINS_TOKEN`     |   yes    | Jenkins API token.                                                  |
 | `JENKINS_TOOLSETS`  |    no    | Comma-separated toolset names to enable, or `all`. See [Tools](tools.md) for valid names. |
-| `JENKINS_READONLY`  |    no    | `true` to disable all mutating tools (`jenkins_trigger_build`, `jenkins_cancel_queue_item`) at registration time. |
+| `JENKINS_READONLY`  |    no    | `true` to disable all mutating tools (`jenkins_trigger_build`, `jenkins_stop_build`, `jenkins_cancel_queue_item`) at registration time. |
 
 ## Use with Claude Desktop / Claude Code
 

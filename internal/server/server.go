@@ -29,6 +29,8 @@ type Server struct {
 	registered int
 	// prompts counts the registered prompts.
 	prompts int
+	// resources counts the registered resources and resource templates.
+	resources int
 	// toolsets records the names of registered toolsets, in order.
 	toolsets []string
 }

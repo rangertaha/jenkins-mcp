@@ -12,8 +12,8 @@ import (
 // registers. Assemble makes no network calls (jenkinsx.NewClient only
 // parses the base URL), so these hermetic tests need no real Jenkins.
 var toolCounts = map[string]int{
-	"jobs":    2,
-	"builds":  3,
+	"jobs":    3,
+	"builds":  7,
 	"queue":   2,
 	"nodes":   2,
 	"views":   2,
@@ -73,7 +73,7 @@ func TestAssembleAllToolsets(t *testing.T) {
 
 func TestAssembleReadOnlySuppressesWriteTools(t *testing.T) {
 	cfg := baseConfig()
-	cfg.Toolsets = []string{"builds"} // 2 read tools + 1 write tool (jenkins_trigger_build)
+	cfg.Toolsets = []string{"builds"} // 5 read tools + 2 write tools
 	cfg.ReadOnly = true
 
 	srv, _, err := Assemble(cfg, "test-version")
@@ -83,8 +83,9 @@ func TestAssembleReadOnlySuppressesWriteTools(t *testing.T) {
 	if !srv.ReadOnly() {
 		t.Error("ReadOnly() = false, want true")
 	}
-	if want := toolCounts["builds"] - 1; srv.ToolCount() != want {
-		t.Errorf("ToolCount() = %d, want %d (write tool suppressed)", srv.ToolCount(), want)
+	// builds has two Write tools: jenkins_trigger_build and jenkins_stop_build.
+	if want := toolCounts["builds"] - 2; srv.ToolCount() != want {
+		t.Errorf("ToolCount() = %d, want %d (write tools suppressed)", srv.ToolCount(), want)
 	}
 }
 

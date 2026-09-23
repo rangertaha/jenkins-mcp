@@ -23,7 +23,7 @@ func TestListPlugins(t *testing.T) {
 	})
 	tls := &systemTools{client: c}
 
-	_, out, err := tls.listPlugins(context.Background(), nil, EmptyInput{})
+	_, out, err := tls.listPlugins(context.Background(), nil, ListPluginsInput{})
 	if err != nil {
 		t.Fatalf("listPlugins: %v", err)
 	}

@@ -32,7 +32,7 @@ func TestListNodes(t *testing.T) {
 	})
 	tls := &nodeTools{client: c}
 
-	_, out, err := tls.listNodes(context.Background(), nil, EmptyInput{})
+	_, out, err := tls.listNodes(context.Background(), nil, ListNodesInput{})
 	if err != nil {
 		t.Fatalf("listNodes: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestListNodesNameIsUsableAsGetNodeInput(t *testing.T) {
 	})
 	tls := &nodeTools{client: c}
 
-	_, out, err := tls.listNodes(context.Background(), nil, EmptyInput{})
+	_, out, err := tls.listNodes(context.Background(), nil, ListNodesInput{})
 	if err != nil {
 		t.Fatalf("listNodes: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -53,12 +54,32 @@ func TestEndToEnd(t *testing.T) {
 	bin := buildBinary(t)
 	client := startMCPServer(t, bin, jenkins.env(), 10*time.Minute)
 
+	// Asserts the tools a client actually receives over the wire, by name.
+	// The exact count is pinned in-process by register_test.go; repeating a
+	// bare number here only produces a stale assertion every time a tool is
+	// added, which is exactly what happened when the toolset grew from 14.
 	t.Run("tools_list", func(t *testing.T) {
 		resp := client.request("tools/list", map[string]any{})
 		result, _ := resp["result"].(map[string]any)
 		raw, _ := result["tools"].([]any)
-		if len(raw) != 14 {
-			t.Errorf("tools/list returned %d tools, want 14", len(raw))
+
+		got := make(map[string]bool, len(raw))
+		for _, entry := range raw {
+			tool, _ := entry.(map[string]any)
+			if name, _ := tool["name"].(string); name != "" {
+				got[name] = true
+			}
+		}
+
+		// One representative tool per toolset: if a toolset failed to
+		// register, its entry here goes missing.
+		for _, want := range []string{
+			"jenkins_list_jobs", "jenkins_get_build", "jenkins_list_queue",
+			"jenkins_list_nodes", "jenkins_list_views", "jenkins_whoami",
+		} {
+			if !got[want] {
+				t.Errorf("tools/list is missing %s; got %d tools: %v", want, len(raw), keysOf(got))
+			}
 		}
 	})
 
@@ -421,4 +442,14 @@ func fetchCrumb(t *testing.T, client *http.Client, j *jenkinsInstance) (field, v
 		t.Fatalf("crumbIssuer returned an incomplete crumb: %+v", crumb)
 	}
 	return crumb.CrumbRequestField, crumb.Crumb
+}
+
+// keysOf returns m's keys sorted, for a deterministic failure message.
+func keysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

@@ -21,8 +21,8 @@ var toolsetRegistrations = []struct {
 	tools      int // tools registered when writes are allowed
 	writeTools int // of those, how many are suppressed in read-only mode
 }{
-	{"jobs", RegisterJobs, 2, 0},
-	{"builds", RegisterBuilds, 3, 1},
+	{"jobs", RegisterJobs, 3, 0},
+	{"builds", RegisterBuilds, 7, 2},
 	{"queue", RegisterQueue, 2, 1},
 	{"nodes", RegisterNodes, 2, 0},
 	{"views", RegisterViews, 2, 0},
@@ -71,7 +71,7 @@ func TestRegisterAllToolsetsReadOnly(t *testing.T) {
 	}
 }
 
-// TestRegisterAllToolsetsTotals pins the documented headline numbers — 14
+// TestRegisterAllToolsetsTotals pins the documented headline numbers — 19
 // tools across 6 toolsets — that README.md and docs/tools.md both state.
 func TestRegisterAllToolsetsTotals(t *testing.T) {
 	c := registrationClient(t)
@@ -81,8 +81,8 @@ func TestRegisterAllToolsetsTotals(t *testing.T) {
 		tc.register(s, c)
 	}
 
-	if got := s.ToolCount(); got != 14 {
-		t.Errorf("ToolCount() = %d, want 14 (the documented tool count)", got)
+	if got := s.ToolCount(); got != 19 {
+		t.Errorf("ToolCount() = %d, want 19 (the documented tool count)", got)
 	}
 	if got := len(s.Toolsets()); got != 6 {
 		t.Errorf("len(Toolsets()) = %d, want 6 (the documented toolset count)", got)

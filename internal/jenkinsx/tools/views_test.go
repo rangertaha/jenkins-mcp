@@ -19,7 +19,7 @@ func TestListViews(t *testing.T) {
 	})
 	tls := &viewTools{client: c}
 
-	_, out, err := tls.listViews(context.Background(), nil, EmptyInput{})
+	_, out, err := tls.listViews(context.Background(), nil, ListViewsInput{})
 	if err != nil {
 		t.Fatalf("listViews: %v", err)
 	}

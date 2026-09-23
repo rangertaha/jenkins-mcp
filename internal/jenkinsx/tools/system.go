@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/url"
 
+	"github.com/google/jsonschema-go/jsonschema"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rangertaha/jenkins-mcp/internal/jenkinsx"
@@ -22,19 +24,25 @@ type systemTools struct {
 func RegisterSystem(s *server.Server, c *jenkinsx.Client) {
 	t := &systemTools{client: c}
 	server.Register(s, server.ToolDef{
-		Name:        "jenkins_list_plugins",
-		Title:       "List installed Jenkins plugins",
-		Description: "List installed plugins with their version, enabled/active status, and whether an update is available.",
+		Name:  "jenkins_list_plugins",
+		Title: "List installed Jenkins plugins",
+		Description: "List installed plugins with version, enabled/active status, and whether an update is " +
+			"available. Useful for checking whether a capability a job depends on is actually installed. " +
+			"Results are paged: when hasMore is true, call again with offset set to offset+count.",
 	}, t.listPlugins)
 	server.Register(s, server.ToolDef{
-		Name:        "jenkins_system_info",
-		Title:       "Get Jenkins system info",
-		Description: "Get Jenkins' version, mode, and other system-level status.",
+		Name:  "jenkins_system_info",
+		Title: "Get Jenkins system info",
+		Description: "Get the controller's version, mode, executor count, and whether it is quieting down " +
+			"(preparing to shut down, so new builds will not start). Use jenkins_whoami instead to check " +
+			"who the configured credentials authenticate as.",
 	}, t.systemInfo)
 	server.Register(s, server.ToolDef{
-		Name:        "jenkins_whoami",
-		Title:       "Check Jenkins authentication",
-		Description: "Report the identity Jenkins resolves the configured credentials to, for verifying connectivity.",
+		Name:  "jenkins_whoami",
+		Title: "Check Jenkins authentication",
+		Description: "Report the identity Jenkins resolves the configured credentials to. Start here when a " +
+			"tool fails with a permission error, to confirm whether the server is authenticated at all or " +
+			"acting as anonymous.",
 	}, t.whoami)
 	s.NoteToolset(systemToolset)
 }
@@ -49,18 +57,29 @@ type PluginSummary struct {
 	HasUpdate bool   `json:"hasUpdate"`
 }
 
-func (t *systemTools) listPlugins(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, server.ListResult[PluginSummary], error) {
+// ListPluginsInput is the input to jenkins_list_plugins.
+type ListPluginsInput struct {
+	Limit  int `json:"limit,omitempty" jsonschema:"maximum plugins to return (default 50, maximum 200)"`
+	Offset int `json:"offset,omitempty" jsonschema:"number of plugins to skip, for paging"`
+}
+
+// RefineSchema bounds the paging arguments.
+func (ListPluginsInput) RefineSchema(s *jsonschema.Schema) { refinePaging(s) }
+
+func (t *systemTools) listPlugins(ctx context.Context, _ *mcp.CallToolRequest, in ListPluginsInput) (*mcp.CallToolResult, PageResult[PluginSummary], error) {
+	limit, offset := effectiveLimit(in.Limit), effectiveOffset(in.Offset)
+
 	var raw struct {
 		Plugins []PluginSummary `json:"plugins"`
 	}
 	query := url.Values{
 		"depth": {"1"},
-		"tree":  {"plugins[shortName,longName,version,enabled,active,hasUpdate]"},
+		"tree":  {"plugins[shortName,longName,version,enabled,active,hasUpdate]" + treeRange(offset, limit)},
 	}
 	if err := t.client.Get(ctx, "/pluginManager/api/json", query, &raw); err != nil {
-		return nil, server.ListResult[PluginSummary]{}, err
+		return nil, PageResult[PluginSummary]{}, err
 	}
-	return nil, server.List(raw.Plugins), nil
+	return nil, newPage(raw.Plugins, offset, limit), nil
 }
 
 // SystemInfo is the output of jenkins_system_info.

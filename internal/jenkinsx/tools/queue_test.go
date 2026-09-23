@@ -22,7 +22,7 @@ func TestListQueue(t *testing.T) {
 	})
 	tls := &queueTools{client: c}
 
-	_, out, err := tls.listQueue(context.Background(), nil, EmptyInput{})
+	_, out, err := tls.listQueue(context.Background(), nil, ListQueueInput{})
 	if err != nil {
 		t.Fatalf("listQueue: %v", err)
 	}

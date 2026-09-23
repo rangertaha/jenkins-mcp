@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/rangertaha/jenkins-mcp/internal/jenkinsx"
 	"github.com/rangertaha/jenkins-mcp/internal/server"
 )
 
@@ -101,7 +102,10 @@ func TestGetBuildNonStringParameterValues(t *testing.T) {
 	for _, p := range out.Parameters {
 		got[p.Name] = p.Value
 	}
-	for name, want := range map[string]string{"DEBUG": "true", "RETRIES": "3", "NOTHING": "<nil>"} {
+	// A JSON null is reported as an empty value, not Go's "<nil>": the
+	// string is meant to be handed straight back to jenkins_trigger_build,
+	// and "<nil>" would be passed through as a literal parameter value.
+	for name, want := range map[string]string{"DEBUG": "true", "RETRIES": "3", "NOTHING": ""} {
 		if got[name] != want {
 			t.Errorf("parameter %s = %q, want %q", name, got[name], want)
 		}
@@ -127,8 +131,23 @@ func TestGetBuildPermalink(t *testing.T) {
 	}
 }
 
+// triggerMock serves the job lookup triggerBuild performs to decide which
+// endpoint to POST to, then delegates the POST itself to post. params is
+// the job's declared parameter definitions ("" for an unparameterized job).
+func triggerMock(t *testing.T, params string, post http.HandlerFunc) *jenkinsx.Client {
+	t.Helper()
+	return mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/job/demo/api/json" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"property":[{"parameterDefinitions":[` + params + `]}]}`))
+			return
+		}
+		post(w, r)
+	})
+}
+
 func TestTriggerBuildWithoutParameters(t *testing.T) {
-	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+	c := triggerMock(t, "", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/job/demo/build" {
 			t.Errorf("path = %q, want /job/demo/build", r.URL.Path)
 		}
@@ -150,7 +169,7 @@ func TestTriggerBuildWithoutParameters(t *testing.T) {
 }
 
 func TestTriggerBuildWithParameters(t *testing.T) {
-	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+	c := triggerMock(t, `{"name":"BRANCH"}`, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/job/demo/buildWithParameters" {
 			t.Errorf("path = %q, want /job/demo/buildWithParameters", r.URL.Path)
 		}
@@ -200,9 +219,9 @@ func TestGetBuildConsole(t *testing.T) {
 	}
 }
 
-// TestRegisterBuildsSkipsWriteToolsWhenReadOnly confirms jenkins_trigger_build
-// (the only Write tool in this toolset) is suppressed in read-only mode,
-// while the two read tools remain registered.
+// TestRegisterBuildsSkipsWriteToolsWhenReadOnly confirms the two Write tools
+// in this toolset (jenkins_trigger_build and jenkins_stop_build) are
+// suppressed in read-only mode, while the read tools remain registered.
 func TestRegisterBuildsSkipsWriteToolsWhenReadOnly(t *testing.T) {
 	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
@@ -211,8 +230,8 @@ func TestRegisterBuildsSkipsWriteToolsWhenReadOnly(t *testing.T) {
 	s := server.New("test", "0.0.0", true)
 	RegisterBuilds(s, c)
 
-	if s.ToolCount() != 2 {
-		t.Errorf("ToolCount() = %d, want 2 (trigger_build suppressed)", s.ToolCount())
+	if s.ToolCount() != 5 {
+		t.Errorf("ToolCount() = %d, want 5 (trigger_build and stop_build suppressed)", s.ToolCount())
 	}
 }
 
@@ -224,7 +243,7 @@ func TestRegisterBuildsRegistersAllToolsWhenNotReadOnly(t *testing.T) {
 	s := server.New("test", "0.0.0", false)
 	RegisterBuilds(s, c)
 
-	if s.ToolCount() != 3 {
-		t.Errorf("ToolCount() = %d, want 3", s.ToolCount())
+	if s.ToolCount() != 7 {
+		t.Errorf("ToolCount() = %d, want 7", s.ToolCount())
 	}
 }

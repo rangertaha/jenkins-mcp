@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/google/jsonschema-go/jsonschema"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rangertaha/jenkins-mcp/internal/jenkinsx"
@@ -24,15 +26,19 @@ type queueTools struct {
 func RegisterQueue(s *server.Server, c *jenkinsx.Client) {
 	t := &queueTools{client: c}
 	server.Register(s, server.ToolDef{
-		Name:        "jenkins_list_queue",
-		Title:       "List Jenkins build queue",
-		Description: "List items currently waiting in the build queue.",
+		Name:  "jenkins_list_queue",
+		Title: "List Jenkins build queue",
+		Description: "List builds waiting to start, with why each is still queued. Use this to see whether a " +
+			"triggered build is blocked or merely waiting for an executor. Each item's id is what " +
+			"jenkins_cancel_queue_item takes.",
 	}, t.listQueue)
 	server.Register(s, server.ToolDef{
 		Name:  "jenkins_cancel_queue_item",
 		Title: "Cancel a queued Jenkins build",
-		Description: "Cancel a pending queue item before it starts building. Safe to retry: canceling an item " +
-			"that's already gone (started building or already canceled) still succeeds.",
+		Description: "Cancel a queued build before it starts, by the id from jenkins_list_queue or " +
+			"jenkins_trigger_build. Safe to retry: canceling an item that is already gone (it started building, " +
+			"or was already canceled) still succeeds. To stop a build that has already started, use " +
+			"jenkins_stop_build instead.",
 		Write:       true,
 		Destructive: true,
 		Idempotent:  true,
@@ -65,13 +71,24 @@ type jenkinsQueueItem struct {
 	InQueueSince int64  `json:"inQueueSince"`
 }
 
-func (t *queueTools) listQueue(ctx context.Context, _ *mcp.CallToolRequest, _ EmptyInput) (*mcp.CallToolResult, server.ListResult[QueueItem], error) {
+// ListQueueInput is the input to jenkins_list_queue.
+type ListQueueInput struct {
+	Limit  int `json:"limit,omitempty" jsonschema:"maximum queue items to return (default 50, maximum 200)"`
+	Offset int `json:"offset,omitempty" jsonschema:"number of queue items to skip, for paging"`
+}
+
+// RefineSchema bounds the paging arguments.
+func (ListQueueInput) RefineSchema(s *jsonschema.Schema) { refinePaging(s) }
+
+func (t *queueTools) listQueue(ctx context.Context, _ *mcp.CallToolRequest, in ListQueueInput) (*mcp.CallToolResult, PageResult[QueueItem], error) {
+	limit, offset := effectiveLimit(in.Limit), effectiveOffset(in.Offset)
+
 	var raw struct {
 		Items []jenkinsQueueItem `json:"items"`
 	}
-	query := url.Values{"tree": {"items[id,task[name,url],why,blocked,buildable,stuck,inQueueSince]"}}
+	query := url.Values{"tree": {"items[id,task[name,url],why,blocked,buildable,stuck,inQueueSince]" + treeRange(offset, limit)}}
 	if err := t.client.Get(ctx, "/queue/api/json", query, &raw); err != nil {
-		return nil, server.ListResult[QueueItem]{}, err
+		return nil, PageResult[QueueItem]{}, err
 	}
 
 	items := make([]QueueItem, 0, len(raw.Items))
@@ -81,12 +98,20 @@ func (t *queueTools) listQueue(ctx context.Context, _ *mcp.CallToolRequest, _ Em
 			Blocked: it.Blocked, Buildable: it.Buildable, Stuck: it.Stuck, InQueueSince: it.InQueueSince,
 		})
 	}
-	return nil, server.List(items), nil
+	return nil, newPage(items, offset, limit), nil
 }
 
 // CancelQueueItemInput is the input to jenkins_cancel_queue_item.
 type CancelQueueItemInput struct {
 	ID int `json:"id" jsonschema:"queue item ID, as returned by jenkins_list_queue or jenkins_trigger_build"`
+}
+
+// RefineSchema states the positive-ID requirement the handler enforces, so
+// a client rejects id=0 before the call is made.
+func (CancelQueueItemInput) RefineSchema(s *jsonschema.Schema) {
+	if p, ok := s.Properties["id"]; ok {
+		p.Minimum = ptr(1.0)
+	}
 }
 
 // CancelQueueItemOutput is the output of jenkins_cancel_queue_item.

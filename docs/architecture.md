@@ -36,7 +36,7 @@ Each tool handler follows the same shape:
 
 ## Read-only mode
 
-`JENKINS_READONLY=true` suppresses every `Write` tool (`jenkins_trigger_build`, `jenkins_cancel_queue_item`) at registration time, via the same `server.Register` mechanism every tool uses — read-only enforcement lives entirely in `internal/server`, not per-tool.
+`JENKINS_READONLY=true` suppresses every `Write` tool (`jenkins_trigger_build`, `jenkins_stop_build`, `jenkins_cancel_queue_item`) at registration time, via the same `server.Register` mechanism every tool uses — read-only enforcement lives entirely in `internal/server`, not per-tool.
 
 ## Toolsets
 
