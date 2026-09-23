@@ -142,9 +142,30 @@ func (c *Client) PostForm(ctx context.Context, path string, query, form url.Valu
 // a 4xx/5xx status. The caller is responsible for closing the returned
 // response's body on success.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader, headers map[string]string) (*http.Response, error) {
+	// Every request in the server funnels through here, which makes this the
+	// one place that can guarantee a caller-supplied path segment cannot
+	// walk out of the endpoint it was meant for. url.URL.JoinPath resolves
+	// ".." itself (it runs path.Join), so a job name, artifact path or stage
+	// ID containing ".." silently rewrites the target: an artifact read of
+	// "../../../../job/other/config.xml" becomes a read of another job's
+	// configuration, and with a base URL that has a path prefix, enough of
+	// them leave Jenkins altogether — still carrying this request's Basic
+	// auth header, which would hand the API token to whatever else is hosted
+	// there. Rejecting the segment here kills that whole class rather than
+	// relying on each tool to sanitize its own inputs.
+	if err := rejectTraversal(path); err != nil {
+		return nil, err
+	}
+
 	full := c.base.JoinPath(path)
 	if len(query) > 0 {
 		full.RawQuery = query.Encode()
+	}
+
+	// Defense in depth: even with ".." rejected, refuse anything that ended
+	// up outside the configured base path.
+	if got := absPath(full.EscapedPath()); !strings.HasPrefix(got, basePathPrefix(c.base)) {
+		return nil, fmt.Errorf("jenkinsx: refusing request to %q, which is outside the configured Jenkins base URL", got)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, full.String(), body)
@@ -167,4 +188,46 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		return nil, &StatusError{StatusCode: resp.StatusCode, Status: resp.Status, Body: strings.TrimSpace(string(b))}
 	}
 	return resp, nil
+}
+
+// rejectTraversal returns an error if any segment of p is "..".
+//
+// It checks segments rather than substrings deliberately: a job or artifact
+// legitimately named "my..build" is fine, and only a whole ".." segment can
+// climb a level. Both the raw and percent-decoded forms are checked, since
+// "%2e%2e" decodes to ".." inside url.URL.
+func rejectTraversal(p string) error {
+	candidates := []string{p}
+	if decoded, err := url.PathUnescape(p); err == nil && decoded != p {
+		candidates = append(candidates, decoded)
+	}
+	for _, c := range candidates {
+		for _, seg := range strings.Split(c, "/") {
+			if seg == ".." {
+				return fmt.Errorf("jenkinsx: refusing request path %q: a %q path segment could escape the intended endpoint", p, "..")
+			}
+		}
+	}
+	return nil
+}
+
+// basePathPrefix returns the base URL's path with leading and trailing
+// slashes, the prefix every request path must keep once joined.
+func basePathPrefix(base *url.URL) string {
+	p := absPath(base.EscapedPath())
+	if !strings.HasSuffix(p, "/") {
+		p += "/"
+	}
+	return p
+}
+
+// absPath normalizes a URL path to start with "/". url.URL.JoinPath leaves
+// the result relative when the base URL has an empty path (the common case
+// for a bare https://ci.example.com), which URL.String later fixes up but
+// which would break a naive prefix comparison.
+func absPath(p string) string {
+	if strings.HasPrefix(p, "/") {
+		return p
+	}
+	return "/" + p
 }
