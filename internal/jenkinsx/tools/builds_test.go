@@ -41,6 +41,73 @@ func TestGetBuild(t *testing.T) {
 	}
 }
 
+// TestGetBuildSkipsUnnamedParameters covers the guard against Jenkins action
+// entries that carry a value with no parameter name. Jenkins' actions array
+// is heterogeneous — plugins contribute their own entries — so a nameless
+// "parameter" is real, and passing it through would hand the model a
+// parameter it can't refer to when triggering a rebuild.
+func TestGetBuildSkipsUnnamedParameters(t *testing.T) {
+	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"number":7,
+			"actions":[{"parameters":[
+				{"name":"","value":"orphaned"},
+				{"name":"BRANCH","value":"main"},
+				{"value":"also-orphaned"}
+			]}]
+		}`))
+	})
+	tls := &buildTools{client: c}
+
+	_, out, err := tls.getBuild(context.Background(), nil, GetBuildInput{Job: "demo", Build: "7"})
+	if err != nil {
+		t.Fatalf("getBuild: %v", err)
+	}
+	if len(out.Parameters) != 1 || out.Parameters[0].Name != "BRANCH" {
+		t.Errorf("Parameters = %+v, want only the named BRANCH parameter", out.Parameters)
+	}
+}
+
+// TestGetBuildNonStringParameterValues checks parameter values that aren't
+// strings (Jenkins booleans and numbers are common: boolean parameters, build
+// numbers) survive into the output rather than becoming empty strings.
+//
+// It also pins the current handling of a JSON null value, which fmt.Sprint
+// renders as the literal string "<nil>". That is a wart rather than a
+// decision: a model reading it back could pass "<nil>" to
+// jenkins_trigger_build as a real parameter value. Changing it would change
+// tool output, so this test records today's behavior rather than asserting
+// it is correct.
+func TestGetBuildNonStringParameterValues(t *testing.T) {
+	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"number":8,
+			"actions":[{"parameters":[
+				{"name":"DEBUG","value":true},
+				{"name":"RETRIES","value":3},
+				{"name":"NOTHING","value":null}
+			]}]
+		}`))
+	})
+	tls := &buildTools{client: c}
+
+	_, out, err := tls.getBuild(context.Background(), nil, GetBuildInput{Job: "demo", Build: "8"})
+	if err != nil {
+		t.Fatalf("getBuild: %v", err)
+	}
+	got := map[string]string{}
+	for _, p := range out.Parameters {
+		got[p.Name] = p.Value
+	}
+	for name, want := range map[string]string{"DEBUG": "true", "RETRIES": "3", "NOTHING": "<nil>"} {
+		if got[name] != want {
+			t.Errorf("parameter %s = %q, want %q", name, got[name], want)
+		}
+	}
+}
+
 func TestGetBuildPermalink(t *testing.T) {
 	c := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/job/demo/lastSuccessfulBuild/api/json" {

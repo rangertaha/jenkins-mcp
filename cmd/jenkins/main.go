@@ -28,7 +28,17 @@ import (
 )
 
 func main() {
-	cmd := &cli.Command{
+	if err := newCommand().Run(context.Background(), os.Args); err != nil {
+		fmt.Fprintf(os.Stderr, "jenkins: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// newCommand builds the CLI command tree. It is separate from main so tests
+// can drive the exact command tree the binary runs, in-process, with their
+// own args and output writer.
+func newCommand() *cli.Command {
+	return &cli.Command{
 		Name:    "jenkins",
 		Usage:   "Jenkins as an MCP server",
 		Version: internal.Version(),
@@ -40,11 +50,6 @@ func main() {
 		},
 		// Print errors ourselves so the MCP stdio stream is never touched.
 		ExitErrHandler: func(context.Context, *cli.Command, error) {},
-	}
-
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, "jenkins: %v\n", err)
-		os.Exit(1)
 	}
 }
 
@@ -89,7 +94,7 @@ func testCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "test",
 		Usage: "Test Jenkins credentials (whoAmI)",
-		Action: func(ctx context.Context, _ *cli.Command) error {
+		Action: func(ctx context.Context, cmd *cli.Command) error {
 			if err := config.LoadEnvFile(config.EnvFile); err != nil {
 				log.Printf("jenkins: reading %s: %v", config.EnvFile, err)
 			}
@@ -112,9 +117,14 @@ func testCommand() *cli.Command {
 				return fmt.Errorf("verifying Jenkins credentials: %w", err)
 			}
 
-			fmt.Printf("OK  authenticated with Jenkins (url=%s)\n", cfg.URL)
-			fmt.Printf("    name=%s authenticated=%v\n", id.Name, id.Authenticated)
-			fmt.Printf("    read-only=%v\n", cfg.ReadOnly)
+			// cli defaults the root Writer to os.Stdout; going through it
+			// (rather than os.Stdout directly) lets tests capture the output.
+			// Only `jenkins test` ever writes to stdout — `jenkins mcp`
+			// reserves it for the MCP JSON-RPC stream.
+			out := cmd.Root().Writer
+			_, _ = fmt.Fprintf(out, "OK  authenticated with Jenkins (url=%s)\n", cfg.URL)
+			_, _ = fmt.Fprintf(out, "    name=%s authenticated=%v\n", id.Name, id.Authenticated)
+			_, _ = fmt.Fprintf(out, "    read-only=%v\n", cfg.ReadOnly)
 			return nil
 		},
 	}

@@ -21,12 +21,19 @@ var version string
 //     `go install github.com/rangertaha/jenkins-mcp/cmd/jenkins@v1.2.3`;
 //  3. a "dev" value annotated with the VCS revision when building from source.
 func Version() string {
-	if version != "" {
-		return version
+	bi, ok := debug.ReadBuildInfo()
+	return resolveVersion(version, bi, ok)
+}
+
+// resolveVersion holds Version's precedence logic, separated from the
+// process-wide debug.ReadBuildInfo() call so every branch is reachable from a
+// test with synthetic build info. injected is the -ldflags value.
+func resolveVersion(injected string, bi *debug.BuildInfo, ok bool) string {
+	if injected != "" {
+		return injected
 	}
 
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
+	if !ok || bi == nil {
 		return "dev"
 	}
 	if v := bi.Main.Version; v != "" && v != "(devel)" {
