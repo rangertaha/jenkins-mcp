@@ -13,23 +13,43 @@ replaces the prior, now-superseded AWS-era description rather than adding
 to it.
 
 ### Added
-- 14 hand-written MCP tools across 6 toolsets calling the Jenkins REST API
+- 22 hand-written MCP tools across 6 toolsets calling the Jenkins REST API
   directly (`internal/jenkinsx`), replacing generic reflection-based
   dispatch over an AWS SDK client (Jenkins is one REST API, not a family of
   typed SDK clients, so that mechanism has no equivalent here):
-  - `jobs`: `jenkins_list_jobs`, `jenkins_get_job`
-  - `builds`: `jenkins_get_build`, `jenkins_trigger_build`, `jenkins_get_build_console`
+  - `jobs`: `jenkins_list_jobs`, `jenkins_get_job`, `jenkins_get_job_config`,
+    `jenkins_search_jobs`
+  - `builds`: `jenkins_get_build`, `jenkins_trigger_build`,
+    `jenkins_get_build_console`, `jenkins_get_build_stages`,
+    `jenkins_get_stage_log`, `jenkins_list_artifacts`, `jenkins_get_artifact`,
+    `jenkins_get_test_results`, `jenkins_stop_build`
   - `queue`: `jenkins_list_queue`, `jenkins_cancel_queue_item`
   - `nodes`: `jenkins_list_nodes`, `jenkins_get_node`
   - `views`: `jenkins_list_views`, `jenkins_get_view`
   - `plugins`: `jenkins_list_plugins`, `jenkins_system_info`, `jenkins_whoami`
+- Three MCP resources: `jenkins://info`, `jenkins://job/{+path}/config.xml`
+  and `jenkins://build/{+job}/{number}/console`.
+- Pipeline support via the Stage View plugin's `wfapi` endpoints, so a failed
+  Pipeline build reports which stage broke instead of requiring the whole
+  console log to be read. Both tools report `isPipeline: false` rather than
+  failing on a non-Pipeline build or an instance without the plugins.
 - HTTP Basic auth (`JENKINS_USER`/`JENKINS_TOKEN`) with automatic CSRF crumb
   handling (fetched from `/crumbIssuer/api/json`, cached, retried once on a
-  stale/rejected crumb) for the two mutating tools.
-- `diagnose_failed_build` and `survey_job` guided-workflow prompts, replacing
-  `survey_bucket`.
+  stale/rejected crumb) for the three mutating tools (`jenkins_trigger_build`,
+  `jenkins_stop_build`, `jenkins_cancel_queue_item`).
+- Six guided-workflow prompts, replacing `survey_bucket`:
+  `diagnose_failed_build`, `survey_job`, `triage_queue`, `compare_builds`,
+  `find_flaky_test` and `triage_pipeline_failure`.
+- Bounded responses: list tools page with `limit`/`offset` (default 50,
+  maximum 200) served by Jenkins' own `tree` range syntax and report
+  `hasMore`; text-returning tools cap at 64 KiB and report `truncated`.
+- Schema constraints (enums, patterns, minimums) published on tool inputs, so
+  a malformed call is rejected by the client before it reaches Jenkins.
 - A `jenkins test` connectivity check (`/whoAmI/api/json`), replacing the STS
   `GetCallerIdentity` check.
+- An end-to-end suite (`make e2e`) that boots real Jenkins in Docker — both
+  stock and with the Pipeline plugins — and drives the compiled binary over
+  real JSON-RPC.
 
 ### Removed
 - The AWS SDK reflection/dispatch engine and its generic meta-tools

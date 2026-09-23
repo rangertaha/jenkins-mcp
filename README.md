@@ -67,6 +67,7 @@ See [Configuration](https://rangertaha.github.io/jenkins-mcp/configuration/) for
 - [Configuration](https://rangertaha.github.io/jenkins-mcp/configuration/) — environment variables, MCP client setup, local dev.
 - [CLI](https://rangertaha.github.io/jenkins-mcp/cli/) — `jenkins mcp`, `jenkins test`.
 - [Tools](https://rangertaha.github.io/jenkins-mcp/tools/) — the full tool reference and how to add one.
+- [Resources](https://rangertaha.github.io/jenkins-mcp/resources/) — job config, build logs and instance info as readable MCP resources.
 - [Prompts](https://rangertaha.github.io/jenkins-mcp/prompts/) — built-in guided workflows.
 - [Architecture](https://rangertaha.github.io/jenkins-mcp/architecture/) — how the Jenkins client and tool dispatch work.
 - [Development](https://rangertaha.github.io/jenkins-mcp/development/) — build, test, lint, smoke-test, release.

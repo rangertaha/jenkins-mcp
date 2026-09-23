@@ -10,7 +10,7 @@ no per-service type family to reflect over — each tool is a concrete Go
 ```
 cmd/jenkins             entrypoint: a urfave/cli command tree (mcp, test)
 internal/config          environment configuration (JENKINS_URL, JENKINS_USER, JENKINS_TOKEN, JENKINS_TOOLSETS, JENKINS_READONLY) + .env loading
-internal/server          MCP server wrapper: typed tool registration, JSON Schema inference, read-only annotations, prompts
+internal/server          MCP server wrapper: typed tool registration, JSON Schema inference (incl. the SchemaRefiner hook), read-only annotations, prompts, resources
 internal/jenkinsx        Jenkins REST client
   client.go                Client: Get/GetWithHeaders/PostForm/Text over a shared HTTP primitive
   crumb.go                  CSRF crumb acquisition, caching, and stale-crumb retry
@@ -18,9 +18,10 @@ internal/jenkinsx        Jenkins REST client
   check.go                  Check: /whoAmI connectivity check
   path.go                   JobPath: full job name -> Jenkins URL path
 internal/jenkinsx/tools  the MCP tool surface, one file per toolset
-  jobs.go, builds.go, queue.go, nodes.go, views.go, system.go
-internal/prompts         built-in MCP prompts (diagnose_failed_build, survey_job)
-internal/app              wires config + jenkinsx + tools + prompts into a *server.Server
+  jobs.go, builds.go, pipeline.go, queue.go, nodes.go, views.go, system.go
+internal/resources       MCP resources: jenkins://info, a job's config.xml, a build's console log
+internal/prompts         built-in MCP prompts (diagnose_failed_build, survey_job, triage_queue, compare_builds, find_flaky_test, triage_pipeline_failure)
+internal/app              wires config + jenkinsx + tools + resources + prompts into a *server.Server
 ```
 
 ## Calling a tool

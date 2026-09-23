@@ -44,8 +44,11 @@ go.work.sum
 Thumbs.db
 desktop.ini
 
-# Local Claude settings, but keep the project's shared settings & slash commands
-/.claude
+# Local Claude settings, but keep the project's shared settings & slash commands.
+# Excluding /.claude itself would make the negations below dead — git will not
+# re-include a path inside an excluded directory — so exclude its contents and
+# then carve out the shared files.
+/.claude/*
 !/.claude/commands/
 !/.claude/settings.json
-.claude/settings.local.json
+/.claude/settings.local.json

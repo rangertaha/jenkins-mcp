@@ -19,7 +19,8 @@ make e2e         # end-to-end tests against a real Jenkins in Docker
 These tests are behind the `e2e` build tag, so `go test ./...` never runs them and the default suite stays hermetic and Docker-free. Requirements and timing:
 
 - A running Docker daemon. The first run also pulls the ~500MB Jenkins image.
-- Roughly 15-30s once the image is cached (Jenkins boots in about 6s), plus pull time on a cold cache.
+- `make e2e` runs two suites. `TestEndToEnd` uses the stock `jenkins/jenkins:lts` image. `TestPipelineEndToEnd` additionally `docker build`s a derived image that installs the Pipeline plugins (`workflow-aggregator`, `pipeline-stage-view`) via `jenkins-plugin-cli`, so its first run downloads plugins from the Jenkins update center and can take several minutes. That image is cached and reused; it is only rebuilt when absent.
+- Roughly 15-45s once both images are cached (Jenkins boots in about 6s), plus pull and plugin-download time on a cold cache.
 - The container is removed via `t.Cleanup` even when a test fails; on failure its last 60 log lines are dumped to help diagnose provisioning problems.
 
 ## Smoke-testing the protocol

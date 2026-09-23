@@ -306,6 +306,138 @@ func TestEndToEnd(t *testing.T) {
 			t.Errorf("expected a tool error for a nonexistent job, got: %v", res.structured)
 		}
 	})
+
+	// Everything below covers the resource and prompt surfaces over real
+	// stdio. Both are otherwise only exercised in-process over an in-memory
+	// transport, which would not notice if they failed to register in the
+	// actual server binary.
+
+	t.Run("prompts_list", func(t *testing.T) {
+		resp := client.request("prompts/list", map[string]any{})
+		result, _ := resp["result"].(map[string]any)
+		raw, _ := result["prompts"].([]any)
+
+		got := map[string]bool{}
+		for _, entry := range raw {
+			p, _ := entry.(map[string]any)
+			if name, _ := p["name"].(string); name != "" {
+				got[name] = true
+			}
+		}
+		for _, want := range []string{
+			"diagnose_failed_build", "survey_job", "triage_queue",
+			"compare_builds", "find_flaky_test", "triage_pipeline_failure",
+		} {
+			if !got[want] {
+				t.Errorf("prompts/list is missing %s; got %v", want, keysOf(got))
+			}
+		}
+	})
+
+	t.Run("resources_list", func(t *testing.T) {
+		resp := client.request("resources/list", map[string]any{})
+		result, _ := resp["result"].(map[string]any)
+		raw, _ := result["resources"].([]any)
+
+		var uris []string
+		for _, entry := range raw {
+			r, _ := entry.(map[string]any)
+			if uri, _ := r["uri"].(string); uri != "" {
+				uris = append(uris, uri)
+			}
+		}
+		if len(uris) == 0 || !contains(uris, "jenkins://info") {
+			t.Errorf("resources/list should advertise jenkins://info, got %v", uris)
+		}
+
+		// Templated resources are listed separately from concrete ones.
+		tmplResp := client.request("resources/templates/list", map[string]any{})
+		tmplResult, _ := tmplResp["result"].(map[string]any)
+		tmplRaw, _ := tmplResult["resourceTemplates"].([]any)
+
+		var templates []string
+		for _, entry := range tmplRaw {
+			r, _ := entry.(map[string]any)
+			if uri, _ := r["uriTemplate"].(string); uri != "" {
+				templates = append(templates, uri)
+			}
+		}
+		for _, want := range []string{
+			"jenkins://job/{+path}/config.xml",
+			"jenkins://build/{+job}/{number}/console",
+		} {
+			if !contains(templates, want) {
+				t.Errorf("resources/templates/list is missing %q, got %v", want, templates)
+			}
+		}
+	})
+
+	t.Run("resource_read_info", func(t *testing.T) {
+		text := readResource(t, client, "jenkins://info")
+		if !strings.Contains(text, "version") {
+			t.Errorf("jenkins://info should report a version: %s", text)
+		}
+	})
+
+	// Reads the config of the job created earlier, exercising the {+path}
+	// reserved expansion against the real server.
+	t.Run("resource_read_job_config", func(t *testing.T) {
+		text := readResource(t, client, "jenkins://job/"+jobName+"/config.xml")
+		if !strings.Contains(text, "<project>") {
+			t.Errorf("job config.xml should be XML, got: %s", text)
+		}
+		if !strings.Contains(text, consoleMarker) {
+			t.Errorf("job config.xml should contain the job's shell step: %s", text)
+		}
+	})
+
+	t.Run("resource_read_build_console", func(t *testing.T) {
+		text := readResource(t, client, "jenkins://build/"+jobName+"/1/console")
+		if !strings.Contains(text, consoleMarker) {
+			t.Errorf("build console resource should contain %q, got: %s", consoleMarker, text)
+		}
+	})
+
+	t.Run("resource_read_unknown_is_an_error", func(t *testing.T) {
+		c := client
+		c.nextID++
+		id := c.nextID
+		c.send(map[string]any{
+			"jsonrpc": "2.0", "id": id, "method": "resources/read",
+			"params": map[string]any{"uri": "jenkins://job/no-such-job-here/config.xml"},
+		})
+		resp := c.recvID(id)
+		if resp["error"] == nil {
+			t.Errorf("reading a nonexistent job's config should be a protocol error, got: %v", resp["result"])
+		}
+	})
+}
+
+// readResource reads a resource and returns its single text content.
+func readResource(t *testing.T, c *mcpClient, uri string) string {
+	t.Helper()
+
+	resp := c.request("resources/read", map[string]any{"uri": uri})
+	result, _ := resp["result"].(map[string]any)
+	contents, _ := result["contents"].([]any)
+	if len(contents) != 1 {
+		t.Fatalf("resources/read(%s) returned %d contents, want 1: %v", uri, len(contents), result)
+	}
+	entry, _ := contents[0].(map[string]any)
+	text, _ := entry["text"].(string)
+	if text == "" {
+		t.Fatalf("resources/read(%s) returned empty text: %v", uri, entry)
+	}
+	return text
+}
+
+func contains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // waitForBuild polls jenkins_get_build until the build finishes. Right after

@@ -51,14 +51,17 @@ cover:
 	go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
-## vet: run go vet
+## vet: run go vet, including the build-tagged e2e sources
+# The second pass is not redundant: e2e is behind //go:build e2e, so the
+# untagged run never compiles it and it can stop building unnoticed.
 vet:
 	go vet ./...
+	go vet -tags=e2e ./...
 
 ## lint: run golangci-lint (config in .golangci.yml)
 lint:
 	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install: https://golangci-lint.run/welcome/install/"; exit 1; }
-	$(GOLANGCI_LINT) run ./...
+	$(GOLANGCI_LINT) run --build-tags=e2e ./...
 
 ## fmt: format all Go files
 fmt:

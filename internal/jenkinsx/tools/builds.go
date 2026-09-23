@@ -382,10 +382,13 @@ func (GetBuildConsoleInput) RefineSchema(s *jsonschema.Schema) {
 
 // ConsoleOutput is the output of jenkins_get_build_console.
 type ConsoleOutput struct {
-	Text      string `json:"text"`
-	NextStart int64  `json:"nextStart" jsonschema:"pass as start on the next call to continue reading"`
-	HasMore   bool   `json:"hasMore" jsonschema:"true when more log remains — either the build is still running, or this slice hit maxBytes"`
-	Truncated bool   `json:"truncated" jsonschema:"true when this slice was cut short at maxBytes rather than reaching the end of the available log"`
+	Text string `json:"text"`
+	// Start is what makes a tail read honest: without it, text that begins
+	// several megabytes into a log is indistinguishable from the whole log.
+	Start     int64 `json:"start" jsonschema:"byte offset this text begins at; greater than 0 means earlier output was NOT returned"`
+	NextStart int64 `json:"nextStart" jsonschema:"pass as start on the next call to continue reading forward"`
+	HasMore   bool  `json:"hasMore" jsonschema:"true when more log remains after this text — either the build is still running, or this slice hit maxBytes"`
+	Truncated bool  `json:"truncated" jsonschema:"true when this is NOT the complete log: either the slice hit maxBytes, or a tail read skipped everything before start"`
 }
 
 func (t *buildTools) getBuildConsole(ctx context.Context, _ *mcp.CallToolRequest, in GetBuildConsoleInput) (*mcp.CallToolResult, ConsoleOutput, error) {
@@ -417,10 +420,19 @@ func (t *buildTools) getBuildConsole(ctx context.Context, _ *mcp.CallToolRequest
 		if err != nil {
 			return nil, ConsoleOutput{}, err
 		}
-		if size, perr := strconv.ParseInt(headers.Get("X-Text-Size"), 10, 64); perr == nil {
-			if start = size - int64(maxBytes); start < 0 {
-				start = 0
-			}
+		size, perr := strconv.ParseInt(headers.Get("X-Text-Size"), 10, 64)
+		if perr != nil {
+			// Silently reading from offset 0 here would hand back the HEAD
+			// of the log in answer to a request for its tail — wrong in the
+			// most misleading possible way, since the caller is diagnosing
+			// a failure and the error is at the other end. Fail loudly.
+			return nil, ConsoleOutput{}, fmt.Errorf(
+				"cannot read the log tail: Jenkins did not report a usable X-Text-Size for this build "+
+					"(got %q); retry without tail to read from the start",
+				headers.Get("X-Text-Size"))
+		}
+		if start = size - int64(maxBytes); start < 0 {
+			start = 0
 		}
 	}
 
@@ -438,10 +450,29 @@ func (t *buildTools) getBuildConsole(ctx context.Context, _ *mcp.CallToolRequest
 		}
 	}
 
-	text, truncated := truncate(body, maxBytes)
+	var text string
+	var truncated bool
+	if in.Tail {
+		// Keep the END of the fetched window. A running build can append
+		// output between the size probe and this read, overshooting
+		// maxBytes; keeping the start would drop the newest bytes, which
+		// are the ones tail was asked for.
+		var dropped int
+		text, dropped, truncated = truncateTail(body, maxBytes)
+		start += int64(dropped)
+	} else {
+		text, truncated = truncate(body, maxBytes)
+	}
 	out.Text = text
-	out.Truncated = truncated
-	if truncated {
+	out.Start = start
+
+	// Truncated means "this is not the whole log", which covers both a slice
+	// cut short and a tail seek that skipped everything before start. The
+	// latter previously reported truncated=false/hasMore=false on a finished
+	// build — telling the caller it held the complete log when it might hold
+	// the last 1% of it.
+	out.Truncated = truncated || start > 0
+	if truncated && !in.Tail {
 		// The rest of this slice hasn't been read, so resume from where the
 		// returned text actually ends rather than from Jenkins' end-of-log
 		// offset, which would silently skip the remainder.

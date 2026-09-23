@@ -11,10 +11,16 @@ returns `count`, `offset` and `hasMore`. When `hasMore` is true, call again with
 `offset` set to `offset + count`. Paging is done server-side with Jenkins' own
 `tree` range syntax, so a controller with thousands of jobs never sends them all.
 
-Tools that return raw text — `jenkins_get_build_console`, `jenkins_get_artifact`,
-`jenkins_get_job_config` — cap their output at 64 KiB and set `truncated` when
-they cut it, so a multi-megabyte console log can't exhaust the model's context in
-a single call.
+Tools that return raw text — `jenkins_get_build_console`, `jenkins_get_stage_log`,
+`jenkins_get_artifact`, `jenkins_get_job_config` — cap their output at 64 KiB and
+set `truncated` when they cut it, so a multi-megabyte console log can't exhaust
+the model's context in a single call.
+
+`jenkins_get_build_console` also takes `tail: true`, which returns the END of the
+log instead of the beginning — what you want when diagnosing a failure. Its
+`start` field reports the offset the returned text begins at, and `truncated` is
+true whenever the response is not the complete log, including when a tail read
+skipped everything before `start`.
 
 ## `jobs`
 
@@ -48,6 +54,12 @@ by calling again with `folder` set to that entry's `fullName`.
 `firstBuild`). `jenkins_get_test_results` returns `hasResults: false` rather than
 an error for a job that publishes no test report.
 
+`jenkins_get_build_stages` and `jenkins_get_stage_log` read the Pipeline Stage
+View plugin's `wfapi` endpoints, which Jenkins core does not provide. On an
+instance without the Pipeline plugins, or for a freestyle build, Jenkins
+answers `wfapi` with a 404 and both tools report `isPipeline: false` rather
+than failing — so it is always safe to try them first on a failed build.
+
 ## `queue`
 
 | Tool | R/W | Description |
@@ -64,12 +76,6 @@ Use `jenkins_cancel_queue_item` for a build that has not started yet, and
 | ---- | :-: | ----------- |
 | `jenkins_list_nodes` | r | List build agents/nodes and their online/idle status. |
 | `jenkins_get_node` | r | Get one node's status and per-executor activity. |
-
-`jenkins_get_build_stages` and `jenkins_get_stage_log` read the Pipeline Stage
-View plugin's `wfapi` endpoints, which Jenkins core does not provide. On an
-instance without the Pipeline plugins, or for a freestyle build, Jenkins
-answers `wfapi` with a 404 and both tools report `isPipeline: false` rather
-than failing — so it is always safe to try them first on a failed build.
 
 Pass `jenkins_get_node` the `name` field from `jenkins_list_nodes`, not
 `displayName`. For the controller the two differ — Jenkins reports the display

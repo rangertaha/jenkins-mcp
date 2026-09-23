@@ -7,6 +7,15 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
+  # Build (but don't deploy) on PRs too. `mkdocs build --strict` fails on a
+  # dead link or a bad nav entry, and with push-only triggers that failure
+  # could not surface until after merge — which is exactly how a broken
+  # docs build reached main once already.
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -45,6 +54,9 @@ jobs:
   deploy:
     name: deploy to Pages
     needs: build
+    # PRs build the site to catch --strict failures before merge, but must
+    # not publish it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

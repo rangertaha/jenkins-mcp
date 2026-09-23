@@ -33,6 +33,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # The e2e suite is behind a //go:build e2e tag, so the untagged vet
+      # above never compiles it and it can rot silently. This type-checks it
+      # without running it (that needs Docker and several minutes).
+      - name: Vet (e2e build tag)
+        run: go vet -tags=e2e ./...
+
       - name: Test
         run: go test -race ./...
 
@@ -52,3 +58,6 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
+          # Without this the linter, like vet, skips every file behind the
+          # e2e build tag.
+          args: --build-tags=e2e

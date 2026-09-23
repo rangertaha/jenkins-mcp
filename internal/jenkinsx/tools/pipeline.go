@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -200,6 +201,19 @@ func (t *buildTools) getStageLog(ctx context.Context, _ *mcp.CallToolRequest, in
 	nodeBase := buildPath(in.Job, in.Build) + "/execution/node/" + url.PathEscape(in.StageID)
 	if err := t.client.Get(ctx, nodeBase+"/wfapi/describe", nil, &desc); err != nil {
 		if jenkinsx.IsNotFound(err) {
+			// This 404 has two very different causes: the build isn't a
+			// Pipeline run at all, or it is but this stage ID doesn't exist
+			// (a stale ID, or one from a different build). Reporting both as
+			// isPipeline=false told a caller that had just been handed
+			// isPipeline=true by jenkins_get_build_stages that the build
+			// wasn't a Pipeline after all. One extra call on the error path
+			// tells them apart.
+			if t.buildIsPipeline(ctx, in.Job, in.Build) {
+				return nil, StageLog{}, fmt.Errorf(
+					"build %s of job %q is a Pipeline run but has no stage with ID %q; "+
+						"take stageId from jenkins_get_build_stages for THIS build",
+					in.Build, in.Job, in.StageID)
+			}
 			return nil, StageLog{StageID: in.StageID}, nil
 		}
 		return nil, StageLog{}, err
@@ -240,4 +254,17 @@ func (t *buildTools) getStageLog(ctx context.Context, _ *mcp.CallToolRequest, in
 		out.Steps = append(out.Steps, step)
 	}
 	return nil, out, nil
+}
+
+// buildIsPipeline reports whether the build has a Pipeline execution at all,
+// used only to tell "not a Pipeline build" apart from "no such stage" when a
+// stage lookup 404s. Any error other than a clean 404 is treated as "not a
+// Pipeline", since this runs on a path that is already reporting a failure
+// and must not mask the original one.
+func (t *buildTools) buildIsPipeline(ctx context.Context, job, build string) bool {
+	var desc struct {
+		ID string `json:"id"`
+	}
+	err := t.client.Get(ctx, buildPath(job, build)+"/wfapi/describe", nil, &desc)
+	return err == nil
 }

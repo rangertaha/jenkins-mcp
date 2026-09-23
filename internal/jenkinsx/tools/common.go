@@ -159,18 +159,86 @@ func ptr[T any](v T) *T { return &v }
 // via a truncated/hasMore flag rather than returning it silently shortened.
 const maxTextBytes = 64 * 1024
 
-// truncate cuts s to at most limit bytes, reporting whether it did.
+// truncate cuts s to at most limit bytes, keeping the start, and reports
+// whether it cut anything.
 //
-// It cuts on a byte boundary, which can split a multi-byte UTF-8 rune at
-// the very end; the trailing partial rune is dropped so the result stays
-// valid UTF-8 rather than ending in a replacement character.
+// The cut is on a byte boundary, which can split a multi-byte UTF-8 rune at
+// the end; the trailing partial rune is dropped so the result doesn't end
+// mid-character.
+//
+// It deliberately does NOT require the result to be valid UTF-8 overall. An
+// earlier version looped `for !utf8.ValidString(cut) { cut = cut[:len-1] }`,
+// which is a trap: validity is a property of the whole string, so a single
+// invalid byte anywhere near the front makes every prefix invalid and the
+// loop strips the string to empty. Console logs carry arbitrary bytes
+// (binary output, latin-1) and a byte-offset seek can land mid-rune, so that
+// case is routine, not exotic — and an empty result with a byte count of
+// zero is what makes a paging caller loop forever on the same offset.
+// Invalid bytes that survive here are replaced with U+FFFD by encoding/json
+// on the way out, which is the right outcome.
 func truncate(s string, limit int) (string, bool) {
 	if len(s) <= limit {
 		return s, false
 	}
-	cut := s[:limit]
-	for len(cut) > 0 && !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
-	}
-	return cut, true
+	return dropPartialRuneSuffix(s[:limit]), true
 }
+
+// truncateTail cuts s to at most limit bytes, keeping the END rather than
+// the start, and reports whether it cut anything.
+//
+// This is what a tail read needs: when a running build appends output
+// between the size probe and the fetch, the fetched window overshoots
+// limit, and keeping the start would discard the newest bytes — the exact
+// ones the caller asked for. It also returns how many leading bytes it
+// dropped, so the caller can report the offset its text actually begins at.
+func truncateTail(s string, limit int) (text string, dropped int, truncated bool) {
+	if len(s) <= limit {
+		return dropLeadingRuneRemnant(s), leadingRemnantLen(s), false
+	}
+	cut := s[len(s)-limit:]
+	n := leadingRemnantLen(cut)
+	return cut[n:], len(s) - limit + n, true
+}
+
+// leadingRemnantLen returns the number of UTF-8 continuation bytes at the
+// start of s — the tail of a rune whose leading byte fell before the cut.
+// A byte-offset seek into a log has no idea where runes begin, so this is
+// the normal case, not an error.
+func leadingRemnantLen(s string) int {
+	n := 0
+	// A rune is at most 4 bytes, so at most 3 continuation bytes can precede
+	// the first real boundary; stopping there avoids eating a legitimately
+	// invalid byte run.
+	for n < len(s) && n < 3 && s[n]&0xC0 == 0x80 {
+		n++
+	}
+	return n
+}
+
+// dropLeadingRuneRemnant removes any partial rune at the start of s.
+func dropLeadingRuneRemnant(s string) string { return s[leadingRemnantLen(s):] }
+
+// dropPartialRuneSuffix removes an incomplete rune at the end of s, looking
+// back at most the length of the longest UTF-8 sequence. It leaves other
+// invalid bytes alone.
+func dropPartialRuneSuffix(s string) string {
+	for i := 0; i < utf8.UTFMax && i < len(s); i++ {
+		end := len(s) - i
+		r, size := utf8.DecodeLastRuneInString(s[:end])
+		if r != utf8.RuneError || size > 1 {
+			return s[:end]
+		}
+		// A RuneError of size 1 at the end is either a genuinely invalid
+		// byte or the start of a rune whose remaining bytes were cut. Only
+		// the latter is worth dropping: check whether these trailing bytes
+		// could begin a longer sequence.
+		if !isRuneStart(s[end-1]) {
+			continue
+		}
+		return s[:end-1]
+	}
+	return s
+}
+
+// isRuneStart reports whether b begins a multi-byte UTF-8 sequence.
+func isRuneStart(b byte) bool { return b&0xC0 == 0xC0 }
